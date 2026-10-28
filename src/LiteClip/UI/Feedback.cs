@@ -60,7 +60,7 @@ public sealed class Toast : Form
         ShowInTaskbar = false;
         TopMost = true;
         StartPosition = FormStartPosition.Manual;
-        BackColor = Color.FromArgb(18, 19, 24);
+        BackColor = Color.FromArgb(19, 18, 27);
         DoubleBuffered = true;
         Opacity = 0;
         var scale = DeviceDpi / 96f;
@@ -113,8 +113,8 @@ public sealed class Toast : Form
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
         float s = DeviceDpi / 96f;
-        var accent = _ok ? Color.FromArgb(124, 92, 255) : Color.FromArgb(255, 92, 110);
-        using (var b = new LinearGradientBrush(new Rectangle(0, 0, (int)(4 * s), Height), accent, _ok ? Color.FromArgb(0, 212, 255) : accent, 90f))
+        var accent = _ok ? Color.FromArgb(124, 58, 237) : Color.FromArgb(255, 92, 110);
+        using (var b = new LinearGradientBrush(new Rectangle(0, 0, (int)(4 * s), Height), accent, _ok ? Color.FromArgb(196, 161, 255) : accent, 90f))
             g.FillRectangle(b, 0, 0, 4 * s, Height);
         // dot
         using (var dot = new SolidBrush(accent)) g.FillEllipse(dot, 18 * s, Height / 2f - 5 * s, 10 * s, 10 * s);

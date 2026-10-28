@@ -1,6 +1,4 @@
-<p align="center"><img src="docs/icon.png" width="96" alt="LiteClip"></p>
-
-<h1 align="center">LiteClip</h1>
+<p align="center"><img src="docs/logo.png" width="280" alt="LiteClip"></p>
 
 <p align="center">A free, lightweight game clipper for Windows. Press a key and the last 30 seconds are saved, at full quality, in about a second.</p>
 

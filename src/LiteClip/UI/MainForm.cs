@@ -12,7 +12,7 @@ namespace LiteClip.UI;
 public sealed class MainForm : Form
 {
     readonly LiteClipApp _app;
-    readonly WebView2 _web = new() { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(13, 14, 18) };
+    readonly WebView2 _web = new() { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(12, 11, 18) };
     readonly System.Windows.Forms.Timer _meterTimer = new() { Interval = 80 };
     bool _meters;
     static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
@@ -22,7 +22,7 @@ public sealed class MainForm : Form
         _app = app;
         Text = "LiteClip";
         Icon = LiteClipApp.AppIcon;
-        BackColor = Color.FromArgb(13, 14, 18);
+        BackColor = Color.FromArgb(12, 11, 18);
         MinimumSize = new Size(900, 600);
         var wa = Screen.PrimaryScreen!.WorkingArea;
         Size = new Size(Math.Min(1280, wa.Width - 80), Math.Min(820, wa.Height - 80));
