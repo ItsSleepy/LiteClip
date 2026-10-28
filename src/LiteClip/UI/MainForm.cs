@@ -23,10 +23,7 @@ public sealed class MainForm : Form
         Text = "LiteClip";
         Icon = LiteClipApp.AppIcon;
         BackColor = Color.FromArgb(12, 11, 18);
-        MinimumSize = new Size(900, 600);
-        var wa = Screen.PrimaryScreen!.WorkingArea;
-        Size = new Size(Math.Min(1280, wa.Width - 80), Math.Min(820, wa.Height - 80));
-        StartPosition = FormStartPosition.CenterScreen;
+        StartPosition = FormStartPosition.Manual;
         Controls.Add(_web);
         _meterTimer.Tick += (_, _) =>
         {
@@ -48,6 +45,12 @@ public sealed class MainForm : Form
     {
         base.OnHandleCreated(e);
         Native.DarkTitleBar(Handle);
+        // size in real pixels for this screen's scaling, centred, never bigger than 90% of it
+        float k = DeviceDpi / 96f;
+        var wa = Screen.FromHandle(Handle).WorkingArea;
+        int w = Math.Min((int)(1280 * k), wa.Width * 9 / 10), h = Math.Min((int)(820 * k), wa.Height * 9 / 10);
+        MinimumSize = new Size(Math.Min((int)(860 * k), w), Math.Min((int)(560 * k), h));
+        Bounds = new Rectangle(wa.Left + (wa.Width - w) / 2, wa.Top + (wa.Height - h) / 2, w, h);
     }
 
     async Task InitWebAsync()
