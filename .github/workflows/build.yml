@@ -58,7 +58,7 @@ jobs:
             -map 0:v -map 1:a -map 1:a -vf format=nv12 -c:v h264_mf -g 60 -c:a aac -f segment -segment_time 2 -segment_format mpegts smoke/seg%03d.ts
           Get-ChildItem smoke
           # the recorder's audio graph, with files standing in for the pipes
-          & $ff -hide_banner -loglevel error -f lavfi -i "sine=f=440:r=48000" -ac 2 -t 6 -f f32le smoke/a.raw
+          [IO.File]::WriteAllBytes("$PWD/smoke/a.raw", (New-Object byte[] (48000 * 8 * 6)))
           & $ff -hide_banner -loglevel verbose -f f32le -ar 48000 -ac 2 -i smoke/a.raw -f f32le -ar 48000 -ac 2 -i smoke/a.raw `
             -filter_complex "[0:a]asettb=1/48000,asetpts=N,asplit=2[g1][g2];[1:a]asettb=1/48000,asetpts=N,asplit=2[m1][m2];[g1][m1]amix=inputs=2:normalize=0:dropout_transition=0[mix]" `
             -map "[mix]" -map "[g2]" -map "[m2]" -c:a aac -b:a 160k -t 5 -f segment -segment_time 2 -segment_format mpegts smoke/p%03d.ts 2>&1 | Select-String -NotMatch "^\s*$" | Select-Object -Last 40
