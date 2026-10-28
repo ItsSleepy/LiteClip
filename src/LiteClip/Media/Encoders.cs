@@ -98,10 +98,11 @@ public static class Encoders
         var key = id + "/" + codec;
         lock (Cache) if (Cache.TryGetValue(key, out var known)) return known;
 
+        // only the encoder is under test here (GPU frames in, like the real pipeline)
         var args = new List<string> { "-hide_banner", "-loglevel", "error",
             "-init_hw_device", "d3d11va=gpu", "-filter_hw_device", "gpu",
             "-f", "lavfi", "-i", "color=c=black:s=1280x720:r=30", "-t", "0.5",
-            "-vf", "format=nv12,hwupload," + GpuTail(id, 1280, 720) };
+            "-vf", NeedsSystemMemory(id) ? "format=nv12" : "format=nv12,hwupload" };
         args.AddRange(VideoArgs(id, codec, 8000, 30));
         args.AddRange(new[] { "-f", "null", "-" });
         var r = await Ffmpeg.RunAsync(args, TimeSpan.FromSeconds(20));
