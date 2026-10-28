@@ -1,0 +1,95 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  ffmpeg:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache ffmpeg
+        id: ffcache
+        uses: actions/cache@v4
+        with:
+          path: build/ffmpeg-out/bin
+          key: ffmpeg-${{ hashFiles('ffmpeg/**') }}
+
+      - name: Set up MSYS2
+        if: steps.ffcache.outputs.cache-hit != 'true'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git make diffutils
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-nasm
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-ffnvcodec-headers
+            mingw-w64-ucrt-x86_64-amf-headers
+
+      - name: Build ffmpeg
+        if: steps.ffcache.outputs.cache-hit != 'true'
+        shell: msys2 {0}
+        run: ./ffmpeg/build.sh
+
+      - name: Smoke test ffmpeg
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ff = 'build/ffmpeg-out/bin/ffmpeg.exe'
+          & $ff -hide_banner -filters | Select-String 'gfxcapture|scale_d3d11|ddagrab'
+          & $ff -hide_banner -encoders | Select-String 'nvenc|amf|_mf'
+          New-Item -ItemType Directory -Force smoke | Out-Null
+          & $ff -hide_banner -loglevel error -f lavfi -i testsrc2=s=1280x720:r=60 -f lavfi -i anullsrc=r=48000:cl=stereo -t 6 `
+            -map 0:v -map 1:a -map 1:a -vf format=nv12 -c:v h264_mf -g 60 -c:a aac -f segment -segment_time 2 -segment_format mpegts smoke/seg%03d.ts
+          Get-ChildItem smoke
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg
+          path: build/ffmpeg-out/bin/*.exe
+
+  app:
+    needs: ffmpeg
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ffmpeg
+          path: src/LiteClip/Embedded
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish LiteClip.exe
+        shell: pwsh
+        run: |
+          $ver = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev.' + $env:GITHUB_RUN_NUMBER }
+          dotnet publish src/LiteClip/LiteClip.csproj -c Release -o out -p:Version=$ver
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-Item out/LiteClip.exe | Format-List Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LiteClip
+          path: out/LiteClip.exe
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create $env:GITHUB_REF_NAME out/LiteClip.exe --title "LiteClip $env:GITHUB_REF_NAME" --generate-notes
