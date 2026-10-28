@@ -257,20 +257,16 @@ public sealed class ClipLibrary
 
     static async Task<bool> EncodeAsync(string src, string dst, string encoder, int kbps, int audioK, int w, int h, bool hw)
     {
-        // keep the aspect ratio: fit inside w x h, even sizes
-        var fw = $"'trunc(min({w},iw*{h}/ih)/2)*2'";
-        var fh = $"'trunc(min({h},ih*{w}/iw)/2)*2'";
+        // decode (on the GPU when possible), then resize + convert on the CPU: works on every driver
         var args = new List<string> { "-hide_banner", "-loglevel", "error", "-y" };
-        if (hw) args.AddRange(new[] { "-hwaccel", "d3d11va", "-hwaccel_output_format", "d3d11" });
-        else args.AddRange(new[] { "-init_hw_device", "d3d11va=gpu", "-filter_hw_device", "gpu" });
-        args.AddRange(new[] { "-i", src, "-map", "0:v:0", "-map", "0:a:0?" });
-        var tail = Encoders.GpuTail(encoder, fw, fh);
-        args.AddRange(new[] { "-vf", (hw ? "" : "format=nv12,hwupload,") + "fps=60," + tail });
-        args.AddRange(Encoders.VideoArgs(encoder, "h264", kbps, 60));
+        if (hw) args.AddRange(new[] { "-hwaccel", "d3d11va" });
+        args.AddRange(new[] { "-i", src, "-map", "0:v:0", "-map", "0:a:0?",
+            "-vf", $"fps=60,scale='trunc(min({w},iw*{h}/ih)/2)*2':'trunc(min({h},ih*{w}/iw)/2)*2':out_color_matrix=bt709:out_range=tv,format=nv12" });
+        args.AddRange(Encoders.VideoArgs(encoder, "h264", kbps, 60, cpuFrames: true));
         args.AddRange(new[] { "-maxrate", $"{kbps}k", "-bufsize", $"{kbps * 2}k",
             "-c:a", "aac", "-b:a", $"{audioK}k", "-ac", "2", "-movflags", "+faststart", dst });
         var r = await Ffmpeg.RunAsync(args, TimeSpan.FromMinutes(10));
-        if (!r.Ok) Log.Warn($"discord export ({(hw ? "gpu decode" : "cpu decode")}) failed: {r.Tail(3)}");
+        if (!r.Ok) Log.Warn($"discord export ({(hw ? "gpu decode" : "cpu decode")}) failed: {r.Tail(6)}");
         return r.Ok && File.Exists(dst);
     }
 

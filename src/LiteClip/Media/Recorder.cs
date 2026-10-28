@@ -163,8 +163,8 @@ public sealed class Recorder : IDisposable
 
         int wrap = s.BufferSeconds / 2 + 8;
         var filter =
-            $"{src}:max_framerate={fps}:capture_cursor={(s.CaptureCursor ? 1 : 0)}," +
-            $"setpts=PTS-{t0},fps={fps}," + Encoders.GpuTail(enc, w, h) + "[v];" +
+            $"{src}:max_framerate={fps}:capture_cursor={(s.CaptureCursor ? 1 : 0)}:width={w}:height={h}:resize_mode=scale_aspect," +
+            $"setpts=PTS-{t0},fps={fps}" + Encoders.CaptureTail(enc) + "[v];" +
             "[0:a]asettb=1/48000,asetpts=N,asplit=2[g1][g2];" +
             "[1:a]asettb=1/48000,asetpts=N,asplit=2[m1][m2];" +
             "[g1][m1]amix=inputs=2:normalize=0:dropout_transition=0[mix]";

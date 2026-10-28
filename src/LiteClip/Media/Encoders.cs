@@ -26,11 +26,16 @@ public static class Encoders
         _ => $"{codec}_mf",
     };
 
-    /// <summary>True when frames must leave the GPU before this encoder (software path).</summary>
-    public static bool NeedsSystemMemory(string id) => id == "mf-sw";
+    /// <summary>
+    /// NVENC and AMF take the captured BGRA frames straight off the graphics card. Media Foundation
+    /// needs NV12, and D3D11 NV12 conversion isn't reliable across drivers, so that path converts on the CPU.
+    /// </summary>
+    public static bool GpuDirect(string id) => id is "nvenc" or "amf";
 
-    public static List<string> VideoArgs(string id, string codec, int kbps, int fps)
+    /// <param name="cpuFrames">Frames were converted to NV12 by LiteClip (BT.709) rather than by the encoder.</param>
+    public static List<string> VideoArgs(string id, string codec, int kbps, int fps, bool? cpuFrames = null)
     {
+        bool cpu = cpuFrames ?? !GpuDirect(id);
         int gop = fps; // a keyframe every second keeps clip cuts within a second of the key press
         var a = new List<string> { "-c:v", FfName(id, codec) };
         string b = $"{kbps}k", max = $"{kbps * 3 / 2}k", buf = $"{kbps * 2}k";
@@ -52,20 +57,16 @@ public static class Encoders
                 a.AddRange(new[] { "-rate_control", "pc_vbr", "-b:v", b, "-maxrate", max, "-g", gop.ToString() });
                 break;
         }
-        // What the D3D11 video processor produces: BT.601 matrix, limited range. Tag it so players show true colours.
-        a.AddRange(new[] { "-color_range", "tv", "-colorspace", "smpte170m", "-color_primaries", "bt709", "-color_trc", "bt709" });
+        // Encoders converting RGB themselves use the BT.601 matrix; LiteClip's own conversion uses BT.709.
+        // Tag whichever it is so players show true colours.
+        a.AddRange(new[] { "-color_range", "tv", "-colorspace", cpu ? "bt709" : "smpte170m", "-color_primaries", "bt709", "-color_trc", "bt709" });
         return a;
     }
 
-    /// <summary>GPU filter tail: resize + convert to NV12 on the graphics card, then tag colours.</summary>
-    public static string GpuTail(string id, int w, int h) => GpuTail(id, w.ToString(), h.ToString());
+    /// <summary>Filters after capture: nothing for GPU-direct encoders, a CPU BT.709 NV12 conversion otherwise.</summary>
+    public static string CaptureTail(string id) => GpuDirect(id) ? "" : "," + CpuNv12;
 
-    public static string GpuTail(string id, string w, string h)
-    {
-        var s = $"scale_d3d11=width={w}:height={h}:format=nv12";
-        if (NeedsSystemMemory(id)) s += ",hwdownload,format=nv12";
-        return s + ",setparams=range=tv:colorspace=smpte170m:color_primaries=bt709:color_trc=bt709";
-    }
+    public const string CpuNv12 = "hwdownload,format=bgra,scale=out_color_matrix=bt709:out_range=tv,format=nv12";
 
     /// <summary>Target bitrate for a resolution, frame rate and quality preset.</summary>
     public static int Kbps(string quality, string codec, int w, int h, int fps)
@@ -102,7 +103,7 @@ public static class Encoders
         var args = new List<string> { "-hide_banner", "-loglevel", "error",
             "-init_hw_device", "d3d11va=gpu", "-filter_hw_device", "gpu",
             "-f", "lavfi", "-i", "color=c=black:s=1280x720:r=30", "-t", "0.5",
-            "-vf", NeedsSystemMemory(id) ? "format=nv12" : "format=nv12,hwupload" };
+            "-vf", GpuDirect(id) ? "format=bgra,hwupload" : "format=nv12" };
         args.AddRange(VideoArgs(id, codec, 8000, 30));
         args.AddRange(new[] { "-f", "null", "-" });
         var r = await Ffmpeg.RunAsync(args, TimeSpan.FromSeconds(20));
