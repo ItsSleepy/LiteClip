@@ -56,7 +56,7 @@ BSFS=(h264_mp4toannexb hevc_mp4toannexb aac_adtstoasc extract_extradata null)
 
 # Fail loudly if a must-have piece silently dropped out (missing headers etc.)
 for need in GFXCAPTURE_FILTER SCALE_D3D11_FILTER H264_NVENC_ENCODER H264_AMF_ENCODER H264_MF_ENCODER; do
-  grep -q "^#define CONFIG_$need 1" config.h || { echo "missing: $need"; grep "CONFIG_$need" config.h; exit 1; }
+  cat config.h config_components.h 2>/dev/null | grep -q "^#define CONFIG_$need 1" || { echo "missing: $need"; exit 1; }
 done
 
 make -j"$(nproc)"
