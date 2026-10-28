@@ -1,1 +1,167 @@
-<!doctype html><title>LiteClip</title>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LiteClip</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand">
+      <img src="icon.png" alt="" width="28" height="28">
+      <span>LiteClip</span>
+    </div>
+    <nav>
+      <button class="nav on" data-view="clips"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10 9.5v5l4.5-2.5z" class="fill"/></svg>Clips</button>
+      <button class="nav" data-view="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 13.5a7.6 7.6 0 0 0 0-3l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-2.6-1.5L14 2.5h-4l-.4 2.5A7.6 7.6 0 0 0 7 6.5l-2.4-1-2 3.4 2 1.6a7.6 7.6 0 0 0 0 3l-2 1.6 2 3.4 2.4-1a7.6 7.6 0 0 0 2.6 1.5l.4 2.5h4l.4-2.5a7.6 7.6 0 0 0 2.6-1.5l2.4 1 2-3.4z"/></svg>Settings</button>
+    </nav>
+    <div class="side-foot">
+      <div class="status" id="status">
+        <span class="dot"></span>
+        <div>
+          <b id="st-text">Starting…</b>
+          <small id="st-detail"></small>
+        </div>
+      </div>
+      <button class="ghost small" id="pause-btn">Pause</button>
+    </div>
+  </aside>
+
+  <main>
+    <!-- ======================== CLIPS -->
+    <section class="view on" id="view-clips">
+      <header class="top">
+        <h1>Clips</h1>
+        <div class="tools">
+          <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><input id="q" placeholder="Search clips" spellcheck="false"></label>
+          <button class="chip" id="fav-filter" title="Favourites only"><svg viewBox="0 0 24 24"><path d="m12 3.8 2.5 5.1 5.6.8-4 4 1 5.5-5.1-2.7-5 2.7 1-5.5-4.1-4 5.6-.8z"/></svg></button>
+          <button class="primary" id="save-btn"><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14"/></svg>Save clip <kbd id="save-key">F8</kbd></button>
+        </div>
+      </header>
+      <div class="games" id="games"></div>
+      <div class="scroll" id="clip-scroll">
+        <div id="clip-list"></div>
+        <div class="empty" id="empty" hidden>
+          <img src="icon.png" alt="" width="64" height="64">
+          <h2>No clips yet</h2>
+          <p>Open a game and press <kbd class="k-clip">F8</kbd> to save the last <span class="k-len">30 seconds</span>.<br>Hold on to something longer with <kbd class="k-long">Shift+F8</kbd>.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================== SETTINGS -->
+    <section class="view" id="view-settings">
+      <header class="top"><h1>Settings</h1><span class="saved" id="saved">Saved</span></header>
+      <div class="scroll">
+        <div class="settings">
+
+          <div class="group">
+            <h2>Clipping</h2>
+            <div class="row"><div><b>Clip key</b><small>Saves the last few seconds</small></div><button class="key" data-key="clipKey"></button></div>
+            <div class="row"><div><b>Clip length</b></div><div class="seg" data-set="clipSeconds" data-type="int">
+              <button value="15">15s</button><button value="30">30s</button><button value="60">1m</button><button value="180">3m</button><button value="300">5m</button></div></div>
+            <div class="row"><div><b>Long clip key</b><small>For whole rounds</small></div><button class="key" data-key="longClipKey"></button></div>
+            <div class="row"><div><b>Long clip length</b></div><div class="seg" data-set="longClipSeconds" data-type="int">
+              <button value="60">1m</button><button value="180">3m</button><button value="300">5m</button></div></div>
+            <div class="row"><div><b>Sound when saved</b></div><label class="switch"><input type="checkbox" data-set="saveSound"><i></i></label></div>
+            <div class="row"><div><b>"Clip saved" pop-up</b><small>Shows over borderless and windowed games</small></div><label class="switch"><input type="checkbox" data-set="savePopup"><i></i></label></div>
+            <div class="row"><div><b>Save clips to</b><small id="folder-path"></small></div><div class="btns"><button class="ghost small" id="open-folder">Open</button><button class="ghost small" id="pick-folder">Change…</button></div></div>
+          </div>
+
+          <div class="group">
+            <h2>Recording</h2>
+            <div class="row"><div><b>Record</b></div><div class="seg" data-set="captureMode">
+              <button value="game">Just the game</button><button value="monitor">Whole screen</button></div></div>
+            <div class="row"><div><b>Only while gaming</b><small>Starts when a game opens and stops when it closes</small></div><label class="switch"><input type="checkbox" data-set="onlyWhileGaming"><i></i></label></div>
+            <div class="row" id="row-monitor"><div><b>Screen</b><small>Used when no game is open</small></div><select data-set="monitorIndex" data-type="int" id="monitors"></select></div>
+            <div class="row"><div><b>Quality</b><small id="quality-hint"></small></div><div class="seg" data-set="quality">
+              <button value="low">Low</button><button value="medium">Medium</button><button value="high">High</button><button value="max">Max</button></div></div>
+            <div class="row"><div><b>Frame rate</b></div><div class="seg" data-set="fps" data-type="int">
+              <button value="30">30</button><button value="60">60</button><button value="120">120</button><button value="144">144</button></div></div>
+            <div class="row"><div><b>Format</b><small>H.264 plays everywhere, including Discord</small></div><div class="seg" data-set="codec">
+              <button value="h264">H.264</button><button value="hevc">HEVC</button><button value="av1">AV1</button></div></div>
+            <div class="row"><div><b>Encoder</b><small id="encoder-hint">Your graphics card does the work, so games barely lose FPS</small></div><select data-set="encoder" id="encoders"></select></div>
+            <div class="row"><div><b>Show mouse cursor</b></div><label class="switch"><input type="checkbox" data-set="captureCursor"><i></i></label></div>
+          </div>
+
+          <div class="group">
+            <h2>Audio</h2>
+            <p class="note">Game sound and your mic are saved on separate tracks too, so you can fix the mix later.</p>
+            <div class="row"><div><b>Record game sound</b></div><label class="switch"><input type="checkbox" data-set="recordGameAudio"><i></i></label></div>
+            <div class="row sub"><div><b>From</b></div><select data-set="gameDevice" id="outputs"></select></div>
+            <div class="row sub"><div><b>Volume</b><div class="meter"><i id="m-game"></i></div></div><div class="slider"><input type="range" min="0" max="200" step="5" data-set="gameVolume" data-type="int"><output></output></div></div>
+            <div class="row"><div><b>Record microphone</b></div><label class="switch"><input type="checkbox" data-set="recordMic"><i></i></label></div>
+            <div class="row sub"><div><b>Microphone</b></div><select data-set="micDevice" id="mics"></select></div>
+            <div class="row sub"><div><b>Volume</b><div class="meter"><i id="m-mic"></i></div></div><div class="slider"><input type="range" min="0" max="200" step="5" data-set="micVolume" data-type="int"><output></output></div></div>
+          </div>
+
+          <div class="group">
+            <h2>Games</h2>
+            <p class="note">LiteClip spots most games by itself. Add a game here if it's missed (or ignore an app it mistakes for one). Use the program name, like <code>cs2.exe</code>.</p>
+            <div class="row col"><div><b>Always treat as a game</b></div><div class="tags" data-list="alwaysGames"></div></div>
+            <div class="row col"><div><b>Never record</b></div><div class="tags" data-list="neverGames"></div></div>
+          </div>
+
+          <div class="group">
+            <h2>Storage</h2>
+            <div class="storage" id="storage"></div>
+          </div>
+
+          <div class="group">
+            <h2>App</h2>
+            <div class="row"><div><b>Start with Windows</b><small>Starts quietly in the tray</small></div><label class="switch"><input type="checkbox" data-set="startWithWindows"><i></i></label></div>
+            <div class="row"><div><b>Closing the window keeps LiteClip running</b><small>It stays in the tray so clipping keeps working</small></div><label class="switch"><input type="checkbox" data-set="closeToTray"><i></i></label></div>
+            <div class="row"><div><b>LiteClip <span id="version"></span></b><small>Free and open source · github.com/ItsSleepy/LiteClip</small></div><div class="btns"><button class="ghost small" id="open-logs">Logs</button><button class="ghost small danger" id="quit">Quit</button></div></div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ======================== PLAYER -->
+<div class="player" id="player" hidden>
+  <div class="p-top">
+    <button class="ghost icon" id="p-close" title="Back (Esc)"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <div class="p-title">
+      <input id="p-name" spellcheck="false" title="Click to rename">
+      <small id="p-meta"></small>
+    </div>
+    <button class="ghost icon" id="p-fav" title="Favourite"><svg viewBox="0 0 24 24"><path d="m12 3.8 2.5 5.1 5.6.8-4 4 1 5.5-5.1-2.7-5 2.7 1-5.5-4.1-4 5.6-.8z"/></svg></button>
+  </div>
+  <div class="p-stage"><video id="video" preload="auto"></video></div>
+  <div class="p-controls">
+    <button class="ghost icon" id="p-play" title="Play/pause (Space)"><svg viewBox="0 0 24 24" class="i-play"><path d="M8 5.5v13l10.5-6.5z" class="fill"/></svg><svg viewBox="0 0 24 24" class="i-pause"><path d="M8 5h3v14H8zM13 5h3v14h-3z" class="fill"/></svg></button>
+    <span class="time" id="p-time">0:00 / 0:00</span>
+    <div class="timeline" id="timeline">
+      <div class="tl-track"></div>
+      <div class="tl-keep" id="tl-keep"></div>
+      <div class="tl-head" id="tl-head"></div>
+      <div class="tl-handle" id="tl-in" title="Start (I)"></div>
+      <div class="tl-handle" id="tl-out" title="End (O)"></div>
+    </div>
+    <button class="ghost icon" id="p-mute" title="Mute (M)"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" class="fill"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" class="vol"/></svg></button>
+  </div>
+  <div class="p-actions">
+    <div class="trim-info" id="trim-info"></div>
+    <div class="btns">
+      <button class="ghost" id="a-trim-copy" disabled>Save trimmed copy</button>
+      <button class="ghost" id="a-trim-replace" disabled>Trim original</button>
+      <span class="sep"></span>
+      <button class="ghost" id="a-copy" title="Paste straight into Discord">Copy</button>
+      <button class="ghost" id="a-discord" title="Smaller copy that fits Discord's 10 MB limit">Discord size</button>
+      <button class="ghost" id="a-reveal">Show in folder</button>
+      <button class="ghost danger" id="a-delete">Delete</button>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+<div class="modal" id="modal" hidden><div class="m-box"><h3 id="m-title"></h3><p id="m-text"></p><div class="btns"><button class="ghost" id="m-no">Cancel</button><button class="primary" id="m-yes">OK</button></div></div></div>
+
+<script src="app.js"></script>
+</body>
+</html>
