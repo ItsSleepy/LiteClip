@@ -28,7 +28,7 @@ FILTERS=(gfxcapture ddagrab fps setpts asetpts settb asettb amix aresample aform
   showinfo copy acopy setparams)
 ENCODERS=(h264_nvenc hevc_nvenc av1_nvenc h264_amf hevc_amf av1_amf h264_mf hevc_mf
   aac mjpeg png gif pcm_s16le pcm_f32le rawvideo)
-DECODERS=(h264 hevc av1 aac pcm_f32le pcm_s16le mjpeg png gif rawvideo)
+DECODERS=(h264 hevc av1 aac pcm_f32le pcm_s16le mjpeg png gif rawvideo wrapped_avframe)
 HWACCELS=(h264_d3d11va h264_d3d11va2 hevc_d3d11va hevc_d3d11va2 av1_d3d11va av1_d3d11va2)
 DEMUXERS=(mpegts mov concat pcm_f32le pcm_s16le image2 wav aac h264 hevc gif)
 MUXERS=(mpegts mp4 mov ipod segment image2 null gif wav adts matroska)
