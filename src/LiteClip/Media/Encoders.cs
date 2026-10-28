@@ -106,7 +106,7 @@ public static class Encoders
         args.AddRange(VideoArgs(id, codec, 8000, 30));
         args.AddRange(new[] { "-f", "null", "-" });
         var r = await Ffmpeg.RunAsync(args, TimeSpan.FromSeconds(20));
-        Log.Info($"encoder test {key}: {(r.Ok ? "works" : "no")} {(r.Ok ? "" : r.Tail(3))}");
+        Log.Info($"encoder test {key}: {(r.Ok ? "works" : "no")} {(r.Ok ? "" : r.Tail(12))}");
         lock (Cache) Cache[key] = r.Ok;
         return r.Ok;
     }

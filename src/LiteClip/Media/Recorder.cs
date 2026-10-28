@@ -224,7 +224,9 @@ public sealed class Recorder : IDisposable
         {
             string err;
             lock (session.Errors) err = string.Join(" | ", session.Errors.TakeLast(4));
-            Log.Warn($"encoder {enc} didn't start: {err}");
+            string all;
+            lock (session.Errors) all = string.Join("\n    ", session.Errors);
+            Log.Warn($"encoder {enc} didn't start. ffmpeg said:\n    {all}\n  args: {string.Join(' ', args)}");
             _lastLaunchError = err;
             try { if (!p.HasExited) p.Kill(true); } catch { }
             feeds.ForEach(f => f.Dispose());
