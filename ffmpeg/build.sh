@@ -75,7 +75,7 @@ HWACCELS=(h264_d3d11va h264_d3d11va2 hevc_d3d11va hevc_d3d11va2 av1_d3d11va av1_
 DEMUXERS=(mpegts mov concat pcm_f32le pcm_s16le image2 wav aac h264 hevc gif)
 MUXERS=(mpegts mp4 mov ipod segment image2 null gif wav adts matroska)
 PARSERS=(h264 hevc aac av1 mjpeg png gif)
-BSFS=(h264_mp4toannexb hevc_mp4toannexb aac_adtstoasc extract_extradata null)
+BSFS=(h264_mp4toannexb hevc_mp4toannexb aac_adtstoasc extract_extradata null h264_metadata hevc_metadata)
 
 ./configure \
   --prefix="$OUT" --arch=x86_64 --target-os=mingw32 \

@@ -91,15 +91,22 @@ public static class Encoders
         return (Math.Max(w, 160), Math.Max(h, 90));
     }
 
-    static readonly Dictionary<string, bool> Cache = new();
+    static readonly Dictionary<string, Task<bool>> Cache = new();
 
-    /// <summary>Encodes half a second of black on the GPU to see if this encoder works here.</summary>
-    public static async Task<bool> WorksAsync(string id, string codec)
+    /// <summary>Encodes half a second of black to see if this encoder works here (once per run).</summary>
+    public static Task<bool> WorksAsync(string id, string codec)
     {
-        var key = id + "/" + codec;
-        lock (Cache) if (Cache.TryGetValue(key, out var known)) return known;
+        lock (Cache)
+        {
+            var key = id + "/" + codec;
+            if (!Cache.TryGetValue(key, out var t)) Cache[key] = t = TestAsync(id, codec);
+            return t;
+        }
+    }
 
-        // only the encoder is under test here (GPU frames in, like the real pipeline)
+    static async Task<bool> TestAsync(string id, string codec)
+    {
+        // only the encoder is under test here (fed the same kind of frames as the real pipeline)
         var args = new List<string> { "-hide_banner", "-loglevel", "error",
             "-init_hw_device", "d3d11va=gpu", "-filter_hw_device", "gpu",
             "-f", "lavfi", "-i", "color=c=black:s=1280x720:r=30", "-t", "0.5",
@@ -107,8 +114,7 @@ public static class Encoders
         args.AddRange(VideoArgs(id, codec, 8000, 30));
         args.AddRange(new[] { "-f", "null", "-" });
         var r = await Ffmpeg.RunAsync(args, TimeSpan.FromSeconds(20));
-        Log.Info($"encoder test {key}: {(r.Ok ? "works" : "no")} {(r.Ok ? "" : r.Tail(12))}");
-        lock (Cache) Cache[key] = r.Ok;
+        Log.Info($"encoder test {id}/{codec}: {(r.Ok ? "works" : "no")} {(r.Ok ? "" : r.Tail(4))}");
         return r.Ok;
     }
 

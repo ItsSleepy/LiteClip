@@ -318,10 +318,10 @@ public sealed class Recorder : IDisposable
     /// Saves the last <paramref name="seconds"/> seconds. Includes the segment still being
     /// written, so the clip ends at the key press, not up to 2 s before it.
     /// </summary>
-    public async Task<string?> SaveClipAsync(int seconds, string folder, string baseName)
+    public async Task<(string? path, double seconds)> SaveClipAsync(int seconds, string folder, string baseName)
     {
         var s = _s;
-        if (s == null || !s.Alive) return null;
+        if (s == null || !s.Alive) return (null, 0);
 
         List<Seg> segs = new();
         DateTime csvTime = DateTime.Now;
@@ -361,7 +361,7 @@ public sealed class Recorder : IDisposable
         {
             // very first segment still being written
             var first = Path.Combine(s.Dir, "seg00000.ts");
-            if (!File.Exists(first)) return null;
+            if (!File.Exists(first)) return (null, 0);
             partial = first;
             end = (DateTime.Now - s.Started).TotalSeconds;
         }
@@ -371,27 +371,47 @@ public sealed class Recorder : IDisposable
         var use = segs.Where(x => x.End > from && File.Exists(x.File)).ToList();
         var files = use.Select(x => x.File).ToList();
         if (partial != null) files.Add(partial);
-        if (files.Count == 0) return null;
+        if (files.Count == 0) return (null, 0);
         double firstStart = use.Count > 0 ? use[0].Start : (segs.Count > 0 ? segs[^1].End : 0);
         double seek = Math.Max(0, from - firstStart);
 
         Directory.CreateDirectory(folder);
         var target = Unique(Path.Combine(folder, Paths.SafeName(baseName) + ".mp4"));
         var tmp = target + ".part";
+        // the segment being written ends mid-packet: stop a little before its end so the last frame is whole
+        double stopAt = end - firstStart - (partial != null ? 0.3 : 0);
         var args = new List<string> { "-hide_banner", "-loglevel", "error", "-y" };
         if (seek > 0.05) args.AddRange(new[] { "-ss", Ffmpeg.Num(seek) });
-        args.AddRange(new[] { "-i", "concat:" + string.Join('|', files), "-map", "0:v:0", "-map", "0:a?",
-            "-c", "copy", "-movflags", "+faststart", "-metadata", "title=" + baseName,
+        if (partial != null && stopAt > seek + 1) args.AddRange(new[] { "-to", Ffmpeg.Num(stopAt) });
+        args.AddRange(new[] { "-i", "concat:" + string.Join('|', files), "-map", "0:v:0", "-map", "0:a?", "-c", "copy" });
+        args.AddRange(ColourFix(s.EncoderId, s.Settings.Codec));
+        args.AddRange(new[] { "-movflags", "+faststart", "-metadata", "title=" + baseName,
             "-metadata", "comment=Saved with LiteClip", "-f", "mp4", tmp });
         var r = await Ffmpeg.RunAsync(args, TimeSpan.FromMinutes(3));
         if (!r.Ok || !File.Exists(tmp) || new FileInfo(tmp).Length < 1000)
         {
             Log.Error($"clip save failed: {r.Tail()}");
             try { File.Delete(tmp); } catch { }
-            return null;
+            return (null, 0);
         }
         File.Move(tmp, target);
-        return target;
+        return (target, Math.Max(0, (partial != null ? stopAt : end - firstStart) - seek));
+    }
+
+    /// <summary>
+    /// Writes the colour description into the stream itself (some encoders, like Media Foundation,
+    /// leave it out), so every player shows the same colours. Costs nothing: it's a header edit during the copy.
+    /// </summary>
+    static string[] ColourFix(string encoder, string codec)
+    {
+        int matrix = Encoders.GpuDirect(encoder) ? 6 : 1; // 6 = BT.601, 1 = BT.709
+        var p = $"video_full_range_flag=0:colour_primaries=1:transfer_characteristics=1:matrix_coefficients={matrix}";
+        return codec switch
+        {
+            "h264" => new[] { "-bsf:v", "h264_metadata=" + p },
+            "hevc" => new[] { "-bsf:v", "hevc_metadata=" + p },
+            _ => Array.Empty<string>(),
+        };
     }
 
     static string Unique(string path)

@@ -241,13 +241,12 @@ public sealed class LiteClipApp : ApplicationContext
             var gameName = Recorder.Status.Game ?? "Desktop";
             var name = $"{gameName} · {DateTime.Now:d MMM HH-mm-ss}";
             var sw = Stopwatch.StartNew();
-            var path = await Recorder.SaveClipAsync(secs, s.ClipFolder, name);
+            var (path, dur) = await Recorder.SaveClipAsync(secs, s.ClipFolder, name);
             if (path == null)
             {
                 Feedback(false, "Couldn't save clip", "Check the log in Settings", game);
                 return null;
             }
-            var dur = await Ffmpeg.DurationAsync(path);
             Library.Add(path, gameName, dur);
             Log.Info($"clip saved in {sw.ElapsedMilliseconds} ms: {Path.GetFileName(path)} ({dur:0.0}s)");
             Feedback(true, "Clip saved", $"{FormatLen(dur)} · {gameName}", game);
