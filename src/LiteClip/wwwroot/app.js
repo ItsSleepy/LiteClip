@@ -34,7 +34,7 @@ const S = {
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmtLen = s => { s = Math.max(0, s || 0); const m = Math.floor(s / 60), r = Math.floor(s % 60); return `${m}:${String(r).padStart(2, '0')}`; };
 const fmtLenTenths = s => { s = Math.max(0, s || 0); const m = Math.floor(s / 60), r = (s % 60).toFixed(1); return `${m}:${r.padStart(4, '0')}`; };
-const fmtSize = b => b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b >= 1e6 ? (b / 1e6).toFixed(b >= 1e8 ? 0 : 1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB';
+const fmtSize = b => !b ? '0 MB' : b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b >= 1e6 ? (b / 1e6).toFixed(b >= 1e8 ? 0 : 1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB';
 const lenLabel = s => s >= 60 ? `${s / 60} minute${s === 60 ? '' : 's'}` : `${s} seconds`;
 const dayKey = d => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 function dayLabel(d) {

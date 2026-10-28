@@ -21,6 +21,48 @@ if ! grep -q "LiteClip:" "$f"; then
 fi
 grep -q "LiteClip:" "$f" || { echo "gfxcapture patch did not apply"; exit 1; }
 
+# LiteClip patch: some drivers (seen on Intel) refuse an NV12 texture array that is both a
+# render target and a video-encoder input (E_INVALIDARG). Retry as a plain render target.
+f=libavfilter/vf_scale_d3d11.c
+if ! grep -q "LiteClip:" "$f"; then
+  python3 - "$f" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+old = """    ret = av_hwframe_ctx_init(s->hw_frames_ctx_out);
+    if (ret < 0) {
+        av_buffer_unref(&s->hw_frames_ctx_out);
+        return ret;
+    }"""
+new = """    ret = av_hwframe_ctx_init(s->hw_frames_ctx_out);
+    if (ret < 0) {
+        /* LiteClip: retry without D3D11_BIND_VIDEO_ENCODER */
+        av_buffer_unref(&s->hw_frames_ctx_out);
+        s->hw_frames_ctx_out = av_hwframe_ctx_alloc(s->hw_device_ctx);
+        if (!s->hw_frames_ctx_out)
+            return AVERROR(ENOMEM);
+        frames_ctx = (AVHWFramesContext *)s->hw_frames_ctx_out->data;
+        frames_ctx->format = AV_PIX_FMT_D3D11;
+        frames_ctx->sw_format = s->format;
+        frames_ctx->width = s->width;
+        frames_ctx->height = s->height;
+        frames_ctx->initial_pool_size = 10 + FFMAX(ctx->extra_hw_frames, 0);
+        frames_hwctx = frames_ctx->hwctx;
+        frames_hwctx->MiscFlags = 0;
+        frames_hwctx->BindFlags = D3D11_BIND_RENDER_TARGET;
+        av_log(ctx, AV_LOG_VERBOSE, "retrying output frames as a plain render target\\n");
+        ret = av_hwframe_ctx_init(s->hw_frames_ctx_out);
+        if (ret < 0) {
+            av_buffer_unref(&s->hw_frames_ctx_out);
+            return ret;
+        }
+    }"""
+assert old in s, "scale_d3d11 anchor not found"
+s = s.replace(old, new, 1)
+open(p, "w").write(s)
+PY
+fi
+grep -q "LiteClip:" "$f" || { echo "scale_d3d11 patch did not apply"; exit 1; }
+
 list() { local IFS=,; echo "$*"; }
 FILTERS=(gfxcapture ddagrab fps setpts asetpts settb asettb amix aresample aformat volume
   anull null format hwdownload hwupload hwmap scale scale_d3d11 split asplit atrim trim
