@@ -93,3 +93,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create $env:GITHUB_REF_NAME out/LiteClip.exe --title "LiteClip $env:GITHUB_REF_NAME" --generate-notes
+
+      - name: Nightly
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete nightly --yes --cleanup-tag 2>$null
+          gh release create nightly out/LiteClip.exe --prerelease --target $env:GITHUB_SHA --title "Nightly build" --notes "Latest build from main ($($env:GITHUB_SHA.Substring(0,7))). Might be rough."
