@@ -33,7 +33,7 @@ Needs Windows 10 (2004) or newer. Windows 11 is best: on Windows 10, Windows dra
 game window ──Windows.Graphics.Capture──▶ GPU resize + colour convert ──▶ NVENC / AMF / Media Foundation
                                                                                    │
 game sound (WASAPI loopback) ─┐                                                    ▼
-                              ├─ named pipes, clock-aligned ───────────▶ 2-second MPEG-TS segments (rolling)
+                              ├─ named pipes, clock-aligned ───────────▶ 1-second MPEG-TS segments (rolling)
 mic (WASAPI) ─────────────────┘                                                    │
                                                                     key press: stream-copy the last N seconds
                                                                                    ▼

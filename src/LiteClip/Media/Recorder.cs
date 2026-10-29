@@ -11,7 +11,7 @@ public sealed record RecStatus(
     DateTime? Since, string Source);
 
 /// <summary>
-/// Runs ffmpeg as the rolling buffer: GPU capture -> GPU encoder -> 2-second MPEG-TS segments
+/// Runs ffmpeg as the rolling buffer: GPU capture -> GPU encoder -> 1-second MPEG-TS segments
 /// that wrap around, plus game and mic audio fed in over pipes. Saving a clip is a stream copy
 /// of the last N seconds of segments into an mp4, so it takes about a second at full quality.
 /// </summary>
@@ -161,7 +161,7 @@ public sealed class Recorder : IDisposable
         var feeds = new List<PipeFeed> { game0, mic0 };
         feeds.ForEach(f => f.Start());
 
-        int wrap = s.BufferSeconds / 2 + 8;
+        int wrap = s.BufferSeconds + 10; // one-second segments
         var filter =
             $"{src}:max_framerate={fps}:capture_cursor={(s.CaptureCursor ? 1 : 0)}:width={w}:height={h}:resize_mode=scale_aspect," +
             $"setpts=PTS-{t0},fps={fps}" + Encoders.CaptureTail(enc) + "[v];" +
@@ -179,7 +179,7 @@ public sealed class Recorder : IDisposable
         args.AddRange(new[] { "-c:a", "aac", "-b:a", "160k",
             "-metadata:s:a:0", "title=Game + Mic", "-metadata:s:a:1", "title=Game", "-metadata:s:a:2", "title=Mic",
             "-disposition:a:0", "default", "-disposition:a:1", "0", "-disposition:a:2", "0",
-            "-f", "segment", "-segment_time", "2", "-segment_format", "mpegts",
+            "-f", "segment", "-segment_time", "1", "-segment_format", "mpegts",
             "-segment_wrap", wrap.ToString(), "-segment_list", Path.Combine(dir, "list.csv"),
             "-segment_list_type", "csv", "-segment_list_size", wrap.ToString(), "-reset_timestamps", "0",
             Path.Combine(dir, "seg%05d.ts") });
@@ -316,7 +316,7 @@ public sealed class Recorder : IDisposable
 
     /// <summary>
     /// Saves the last <paramref name="seconds"/> seconds. Includes the segment still being
-    /// written, so the clip ends at the key press, not up to 2 s before it.
+    /// written, so the clip ends at the key press, not up to a second before it.
     /// </summary>
     public async Task<(string? path, double seconds)> SaveClipAsync(int seconds, string folder, string baseName)
     {
@@ -373,7 +373,10 @@ public sealed class Recorder : IDisposable
         if (partial != null) files.Add(partial);
         if (files.Count == 0) return (null, 0);
         double firstStart = use.Count > 0 ? use[0].Start : (segs.Count > 0 ? segs[^1].End : 0);
-        double seek = Math.Max(0, from - firstStart);
+        // No seeking: every segment starts on a keyframe (one per second), so starting the clip at a
+        // segment boundary makes video and audio begin together. A seek into the middle of a segment
+        // lands on whatever keyframe comes next for video but keeps audio from the seek point,
+        // which left a gap of up to a second of sound with no picture.
 
         Directory.CreateDirectory(folder);
         var target = Unique(Path.Combine(folder, Paths.SafeName(baseName) + ".mp4"));
@@ -381,8 +384,7 @@ public sealed class Recorder : IDisposable
         // the segment being written ends mid-packet: stop a little before its end so the last frame is whole
         double stopAt = end - firstStart - (partial != null ? 0.3 : 0);
         var args = new List<string> { "-hide_banner", "-loglevel", "error", "-y" };
-        if (seek > 0.05) args.AddRange(new[] { "-ss", Ffmpeg.Num(seek) });
-        if (partial != null && stopAt > seek + 1) args.AddRange(new[] { "-to", Ffmpeg.Num(stopAt) });
+        if (partial != null && stopAt > 1) args.AddRange(new[] { "-to", Ffmpeg.Num(stopAt) });
         args.AddRange(new[] { "-i", "concat:" + string.Join('|', files), "-map", "0:v:0", "-map", "0:a?", "-c", "copy" });
         args.AddRange(ColourFix(s.EncoderId, s.Settings.Codec));
         args.AddRange(new[] { "-movflags", "+faststart", "-metadata", "title=" + baseName,
@@ -395,7 +397,7 @@ public sealed class Recorder : IDisposable
             return (null, 0);
         }
         File.Move(tmp, target);
-        return (target, Math.Max(0, (partial != null ? stopAt : end - firstStart) - seek));
+        return (target, Math.Max(0, partial != null ? stopAt : end - firstStart));
     }
 
     /// <summary>
