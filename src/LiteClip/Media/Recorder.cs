@@ -165,17 +165,17 @@ public sealed class Recorder : IDisposable
         int wrap = s.BufferSeconds + 10; // one-second segments
         var filter =
             $"{src}:max_framerate={fps}:capture_cursor={(s.CaptureCursor ? 1 : 0)}:width={w}:height={h}:resize_mode=scale_aspect," +
-            $"setpts=PTS-{t0},fps={fps}" + Encoders.CaptureTail(enc) + "[v];" +
+            $"setpts=PTS-{t0}" + Encoders.CaptureTail(enc) + "[v];" +
             "[0:a]asettb=1/48000,asetpts=N,asplit=2[g1][g2];" +
             "[1:a]asettb=1/48000,asetpts=N,asplit=2[m1][m2];" +
             "[g1][m1]amix=inputs=2:normalize=0:dropout_transition=0[mix]";
 
-        var args = new List<string> { "-hide_banner", "-loglevel", "warning", "-nostats", "-progress", "pipe:1", "-stats_period", "60",
+        var args = new List<string> { "-hide_banner", "-loglevel", "warning", "-nostats", "-progress", "pipe:1", "-stats_period", "15",
             "-thread_queue_size", "1024", "-f", "f32le", "-ar", "48000", "-ac", "2", "-i", game0.FfmpegPath,
             "-thread_queue_size", "1024", "-f", "f32le", "-ar", "48000", "-ac", "2", "-i", mic0.FfmpegPath,
             "-filter_complex", filter,
             "-map", "[v]", "-map", "[mix]", "-map", "[g2]", "-map", "[m2]",
-            "-fps_mode", "passthrough" };
+            "-fps_mode:v", "cfr", "-r:v", fps.ToString() }; // cfr here (not the fps filter) so ffmpeg reports how many frames it had to repeat
         args.AddRange(Encoders.VideoArgs(enc, s.Codec, kbps, fps));
         args.AddRange(new[] { "-c:a", "aac", "-b:a", "160k",
             "-metadata:s:a:0", "title=Game + Mic", "-metadata:s:a:1", "title=Game", "-metadata:s:a:2", "title=Mic",
@@ -198,6 +198,7 @@ public sealed class Recorder : IDisposable
         };
         // once a minute ffmpeg reports how it's keeping up (speed below 1x = it's falling behind)
         var prog = new Dictionary<string, string>();
+        long lastAt = 0, lastFrames = 0, lastDup = 0;
         p.OutputDataReceived += (_, e) =>
         {
             if (string.IsNullOrEmpty(e.Data)) return;
@@ -205,7 +206,14 @@ public sealed class Recorder : IDisposable
             if (eq <= 0) return;
             string k = e.Data[..eq], v = e.Data[(eq + 1)..].Trim();
             if (k != "progress") { prog[k] = v; return; }
-            Log.Info($"recorder: fps={prog.GetValueOrDefault("fps")} speed={prog.GetValueOrDefault("speed")} frames={prog.GetValueOrDefault("frame")} dropped={prog.GetValueOrDefault("drop_frames")} bitrate={prog.GetValueOrDefault("bitrate")}");
+            // "new frames/s" = frames Windows actually handed us; the rest are repeats to keep a steady rate
+            long.TryParse(prog.GetValueOrDefault("frame"), out var fr);
+            long.TryParse(prog.GetValueOrDefault("dup_frames"), out var dup);
+            var now = Environment.TickCount64;
+            string fresh = "?";
+            if (lastAt > 0 && now > lastAt) fresh = (((fr - lastFrames) - (dup - lastDup)) * 1000.0 / (now - lastAt)).ToString("0");
+            lastAt = now; lastFrames = fr; lastDup = dup;
+            Log.Info($"recorder: new frames/s={fresh} fps={prog.GetValueOrDefault("fps")} speed={prog.GetValueOrDefault("speed")} frames={fr} repeated={dup} dropped={prog.GetValueOrDefault("drop_frames")}");
         };
         try
         {

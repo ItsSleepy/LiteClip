@@ -118,21 +118,59 @@ public static class Native
 
     /// <summary>
     /// Asks Windows to schedule this process's GPU work ahead of normal programs (games included).
-    /// Realtime needs admin rights; High usually works without. Returns what was set.
+    /// High and realtime need the "increase scheduling priority" right, which only admins have and
+    /// which has to be switched on first. Returns what was set, plus the error codes when it fails.
     /// </summary>
     public static string RaiseGpuPriority(Process p)
     {
+        EnablePriorityPrivilege();
+        var errors = new List<string>();
         foreach (var (level, name) in new[] { (5, "realtime"), (4, "high"), (3, "above normal") })
         {
             try
             {
-                if (D3DKMTSetProcessSchedulingPriorityClass(p.Handle, level) == 0
-                    && D3DKMTGetProcessSchedulingPriorityClass(p.Handle, out var got) == 0 && got == level)
-                    return name;
+                int st = D3DKMTSetProcessSchedulingPriorityClass(p.Handle, level);
+                if (st != 0) { errors.Add($"{name} 0x{st:X8}"); continue; }
+                int gs = D3DKMTGetProcessSchedulingPriorityClass(p.Handle, out var got);
+                if (gs == 0 && got == level) return name + (IsElevated ? " (admin)" : "");
+                errors.Add($"{name} set but reads {got} (0x{gs:X8})");
             }
-            catch { return "unavailable"; }
+            catch (Exception ex) { return "unavailable: " + ex.GetType().Name; }
         }
-        return "normal";
+        return $"normal ({string.Join(", ", errors)}; admin={IsElevated})";
+    }
+
+    public static bool IsElevated
+    {
+        get
+        {
+            try { using var id = System.Security.Principal.WindowsIdentity.GetCurrent(); return new System.Security.Principal.WindowsPrincipal(id).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator); }
+            catch { return false; }
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)] struct LUID { public uint Low; public int High; }
+    [StructLayout(LayoutKind.Sequential)] struct TOKEN_PRIVILEGES { public int Count; public LUID Luid; public int Attributes; }
+    [DllImport("advapi32.dll", SetLastError = true)] static extern bool OpenProcessToken(IntPtr proc, int access, out IntPtr token);
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)] static extern bool LookupPrivilegeValue(string? sys, string name, out LUID luid);
+    [DllImport("advapi32.dll", SetLastError = true)] static extern bool AdjustTokenPrivileges(IntPtr token, bool disableAll, ref TOKEN_PRIVILEGES p, int len, IntPtr prev, IntPtr retLen);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+
+    /// <summary>Switches on SeIncreaseBasePriorityPrivilege if this account has it (admins do; it starts off).</summary>
+    static void EnablePriorityPrivilege()
+    {
+        try
+        {
+            if (!OpenProcessToken(Process.GetCurrentProcess().Handle, 0x0020 | 0x0008 /*ADJUST_PRIVILEGES|QUERY*/, out var tok)) return;
+            try
+            {
+                if (!LookupPrivilegeValue(null, "SeIncreaseBasePriorityPrivilege", out var luid)) return;
+                var tp = new TOKEN_PRIVILEGES { Count = 1, Luid = luid, Attributes = 2 /*SE_PRIVILEGE_ENABLED*/ };
+                AdjustTokenPrivileges(tok, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero);
+            }
+            finally { CloseHandle(tok); }
+        }
+        catch { }
     }
 
     public static void AttachToJob(Process p)
