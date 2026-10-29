@@ -38,7 +38,12 @@ public sealed class AudioSource : IDisposable
 
     public AudioSource(string kind, string deviceId) { Kind = kind; _deviceId = deviceId; }
 
+    long _newestQpc; // when the newest queued frame was captured (QPC, 100 ns)
+
     public int AvailableFrames { get { lock (_lock) return _count / 2; } }
+
+    /// <summary>Frames queued, and when the newest of them was captured.</summary>
+    public (int frames, long newestQpc) State() { lock (_lock) return (_count / 2, _newestQpc); }
 
     /// <summary>Peak level since the last call, 0..1 (after gain).</summary>
     public float TakePeak() { lock (_lock) { var p = _peak; _peak = 0; return p; } }
@@ -104,6 +109,7 @@ public sealed class AudioSource : IDisposable
     void OnData(object? sender, WaveInEventArgs e)
     {
         if (_disposed || _rs == null || e.BytesRecorded == 0) return;
+        long arrived = Native.Qpc100ns();
         int bytesPerSample = _bits / 8;
         int frames = e.BytesRecorded / (bytesPerSample * _inCh);
         if (_conv.Length < frames * 2) _conv = new float[frames * 2];
@@ -120,7 +126,7 @@ public sealed class AudioSource : IDisposable
         int maxOut = (int)(frames * (Rate / (double)_inRate) * 1.01) + 64;
         if (_outBuf.Length < maxOut * 2) _outBuf = new float[maxOut * 2];
         int got = _rs.ResampleOut(_outBuf, 0, need, maxOut, 2);
-        Push(_outBuf, got * 2);
+        Push(_outBuf, got * 2, arrived);
     }
 
     /// <summary>Any WASAPI format to interleaved stereo float, with a proper downmix for surround.</summary>
@@ -158,10 +164,11 @@ public sealed class AudioSource : IDisposable
         }
     }
 
-    void Push(float[] src, int n)
+    void Push(float[] src, int n, long arrived)
     {
         lock (_lock)
         {
+            _newestQpc = arrived;
             float pk = _peak;
             for (int i = 0; i < n; i++) { var a = Math.Abs(src[i]); if (a > pk) pk = a; }
             _peak = pk;
@@ -212,16 +219,15 @@ public sealed class AudioSource : IDisposable
 
 /// <summary>
 /// Feeds one audio source into ffmpeg through a named pipe on a fixed clock:
-/// sample N always means "T0 + N/48000", whatever the device does. Gaps (loopback goes
-/// quiet when nothing plays) become silence; the source's resample ratio is trimmed so its
-/// buffer level stays put, which is what keeps long sessions in sync.
+/// sample N always means "T0 + N/48000", whatever the device does. Every write compares when the
+/// queued sound was actually captured with the moment its slot stands for, and skips, pads or
+/// gently resamples to close the gap. Gaps (loopback goes quiet when nothing plays) become silence.
 /// </summary>
 public sealed class PipeFeed : IDisposable
 {
     const int Rate = AudioSource.Rate;
-    const int TargetFrames = Rate * 40 / 1000;    // ~40 ms cushion absorbs packet jitter
-    const int HighFrames = Rate * 120 / 1000;     // beyond this something stalled: skip ahead
-    public const int LatencyMs = 50;              // cushion + typical device latency
+    const double SnapMs = 15;                     // beyond this, correct at once instead of nudging
+    public const int LatencyMs = 50;              // how far behind real time the pipe runs (packets must have arrived)
 
     public readonly string PipeName;
     readonly NamedPipeServerStream _pipe;
@@ -255,8 +261,6 @@ public sealed class PipeFeed : IDisposable
             _pipe.WaitForConnectionAsync(_cts.Token).GetAwaiter().GetResult();
             Connected = true;
             var buf = new float[Rate * 2]; // up to 1 s per write
-            bool buffering = true;
-            double level = TargetFrames;
             timeBeginPeriod(1);
             while (!_cts.IsCancellationRequested)
             {
@@ -264,24 +268,36 @@ public sealed class PipeFeed : IDisposable
                 long need = due - FramesWritten;
                 if (need <= 0) { Thread.Sleep(5); continue; }
                 int n = (int)Math.Min(need, Rate);
-                int avail = _src?.AvailableFrames ?? 0;
+                int lead = 0, got = 0;
 
-                if (avail - n > HighFrames) { _src!.Discard(avail - n - TargetFrames); avail = n + TargetFrames; }
-
-                int got = 0;
                 if (_src != null)
                 {
-                    if (buffering) { if (avail >= TargetFrames + n) buffering = false; }
-                    if (!buffering)
+                    var (avail, newest) = _src.State();
+                    if (avail > 0)
                     {
-                        got = _src.Read(buf, 0, n);
-                        if (got < n) buffering = true; // ran dry (quiet loopback, or a hiccup)
+                        // When was the oldest queued frame captured, and which moment does the next
+                        // frame we write stand for? They should match: that's what keeps sound in sync.
+                        long oldest = newest - (long)avail * 10_000_000 / Rate;
+                        long slot = _t0 + FramesWritten * 10_000_000 / Rate;
+                        double errMs = (oldest - slot) / 10_000.0; // + content is newer than its slot, - older
+                        if (errMs < -SnapMs)
+                        {   // sound is late: skip the stale part
+                            int drop = Math.Min(avail, (int)(-errMs * Rate / 1000));
+                            _src.Discard(drop);
+                            errMs = 0;
+                        }
+                        else if (errMs > SnapMs)
+                        {   // sound is early (it went quiet and came back): pad until its moment arrives
+                            lead = Math.Min(n, (int)(errMs * Rate / 1000));
+                            errMs = 0;
+                        }
+                        // small errors: nudge the resampler a few hundred ppm so it settles without a skip
+                        _src.SetDriftAdjust(-errMs * 0.0002);
+                        got = _src.Read(buf, lead * 2, n - lead);
                     }
-                    level = level * 0.98 + _src.AvailableFrames * 0.02;
-                    // too much queued -> device clock runs fast -> make fewer output samples
-                    if (!buffering) _src.SetDriftAdjust((level - TargetFrames) / TargetFrames * 0.0005);
                 }
-                if (got < n) Array.Clear(buf, got * 2, (n - got) * 2);
+                if (lead > 0) Array.Clear(buf, 0, lead * 2);
+                if (lead + got < n) Array.Clear(buf, (lead + got) * 2, (n - lead - got) * 2);
 
                 _pipe.Write(MemoryMarshal.AsBytes(buf.AsSpan(0, n * 2)));
                 FramesWritten += n;
