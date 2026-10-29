@@ -170,7 +170,7 @@ public sealed class Recorder : IDisposable
             "[1:a]asettb=1/48000,asetpts=N,asplit=2[m1][m2];" +
             "[g1][m1]amix=inputs=2:normalize=0:dropout_transition=0[mix]";
 
-        var args = new List<string> { "-hide_banner", "-loglevel", "warning", "-stats", "-stats_period", "60",
+        var args = new List<string> { "-hide_banner", "-loglevel", "warning", "-nostats", "-progress", "pipe:1", "-stats_period", "60",
             "-thread_queue_size", "1024", "-f", "f32le", "-ar", "48000", "-ac", "2", "-i", game0.FfmpegPath,
             "-thread_queue_size", "1024", "-f", "f32le", "-ar", "48000", "-ac", "2", "-i", mic0.FfmpegPath,
             "-filter_complex", filter,
@@ -190,15 +190,23 @@ public sealed class Recorder : IDisposable
         p.ErrorDataReceived += (_, e) =>
         {
             if (string.IsNullOrWhiteSpace(e.Data)) return;
-            // once a minute ffmpeg reports how it's keeping up (speed below 1x = it's falling behind)
-            if (e.Data.StartsWith("frame=")) { Log.Info("recorder: " + string.Join(' ', e.Data.Split(' ', StringSplitOptions.RemoveEmptyEntries))); return; }
             lock (session.Errors)
             {
                 session.Errors.AddLast(e.Data);
                 if (session.Errors.Count > 40) session.Errors.RemoveFirst();
             }
         };
-        p.OutputDataReceived += (_, _) => { };
+        // once a minute ffmpeg reports how it's keeping up (speed below 1x = it's falling behind)
+        var prog = new Dictionary<string, string>();
+        p.OutputDataReceived += (_, e) =>
+        {
+            if (string.IsNullOrEmpty(e.Data)) return;
+            int eq = e.Data.IndexOf('=');
+            if (eq <= 0) return;
+            string k = e.Data[..eq], v = e.Data[(eq + 1)..].Trim();
+            if (k != "progress") { prog[k] = v; return; }
+            Log.Info($"recorder: fps={prog.GetValueOrDefault("fps")} speed={prog.GetValueOrDefault("speed")} frames={prog.GetValueOrDefault("frame")} dropped={prog.GetValueOrDefault("drop_frames")} bitrate={prog.GetValueOrDefault("bitrate")}");
+        };
         try
         {
             p.Start();
