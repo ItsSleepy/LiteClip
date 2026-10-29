@@ -111,6 +111,30 @@ public static class Native
         catch { return IntPtr.Zero; }
     }
 
+    // ---- GPU scheduling priority, so a game maxing out the graphics card can't starve capture
+
+    [DllImport("gdi32.dll")] static extern int D3DKMTSetProcessSchedulingPriorityClass(IntPtr process, int priority);
+    [DllImport("gdi32.dll")] static extern int D3DKMTGetProcessSchedulingPriorityClass(IntPtr process, out int priority);
+
+    /// <summary>
+    /// Asks Windows to schedule this process's GPU work ahead of normal programs (games included).
+    /// Realtime needs admin rights; High usually works without. Returns what was set.
+    /// </summary>
+    public static string RaiseGpuPriority(Process p)
+    {
+        foreach (var (level, name) in new[] { (5, "realtime"), (4, "high"), (3, "above normal") })
+        {
+            try
+            {
+                if (D3DKMTSetProcessSchedulingPriorityClass(p.Handle, level) == 0
+                    && D3DKMTGetProcessSchedulingPriorityClass(p.Handle, out var got) == 0 && got == level)
+                    return name;
+            }
+            catch { return "unavailable"; }
+        }
+        return "normal";
+    }
+
     public static void AttachToJob(Process p)
     {
         try { if (Job != IntPtr.Zero) AssignProcessToJobObject(Job, p.Handle); } catch { }

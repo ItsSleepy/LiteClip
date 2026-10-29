@@ -123,7 +123,7 @@ public sealed class Recorder : IDisposable
                     if (s.Encoder == "auto" && s.LastEncoder != enc) { s.LastEncoder = enc; try { s.Save(); } catch { } }
                     SetStatus(new RecStatus(RecState.Recording, game != null ? $"Recording {game.Name}" : "Recording screen",
                         game?.Name, Encoders.Label(enc), w, h, fps, kbps, DateTime.Now, sourceLabel));
-                    Log.Info($"recording {sourceLabel} {w}x{h}@{fps} {kbps}k via {enc}/{s.Codec}");
+                    Log.Info($"recording {sourceLabel} {w}x{h}@{fps} {kbps}k via {enc}/{s.Codec}, gpu priority {_gpuPriority}");
                     return;
                 }
                 lastErr = _lastLaunchError;
@@ -139,6 +139,7 @@ public sealed class Recorder : IDisposable
     }
 
     string _lastLaunchError = "";
+    string _gpuPriority = "normal";
 
     static string Friendly(string err)
     {
@@ -169,7 +170,7 @@ public sealed class Recorder : IDisposable
             "[1:a]asettb=1/48000,asetpts=N,asplit=2[m1][m2];" +
             "[g1][m1]amix=inputs=2:normalize=0:dropout_transition=0[mix]";
 
-        var args = new List<string> { "-hide_banner", "-loglevel", "warning", "-nostats",
+        var args = new List<string> { "-hide_banner", "-loglevel", "warning", "-stats", "-stats_period", "60",
             "-thread_queue_size", "1024", "-f", "f32le", "-ar", "48000", "-ac", "2", "-i", game0.FfmpegPath,
             "-thread_queue_size", "1024", "-f", "f32le", "-ar", "48000", "-ac", "2", "-i", mic0.FfmpegPath,
             "-filter_complex", filter,
@@ -189,6 +190,8 @@ public sealed class Recorder : IDisposable
         p.ErrorDataReceived += (_, e) =>
         {
             if (string.IsNullOrWhiteSpace(e.Data)) return;
+            // once a minute ffmpeg reports how it's keeping up (speed below 1x = it's falling behind)
+            if (e.Data.StartsWith("frame=")) { Log.Info("recorder: " + string.Join(' ', e.Data.Split(' ', StringSplitOptions.RemoveEmptyEntries))); return; }
             lock (session.Errors)
             {
                 session.Errors.AddLast(e.Data);
@@ -200,7 +203,9 @@ public sealed class Recorder : IDisposable
         {
             p.Start();
             Native.AttachToJob(p);
-            try { p.PriorityClass = ProcessPriorityClass.AboveNormal; } catch { }
+            // capture must keep up even when a game pins the CPU and GPU at 100%
+            try { p.PriorityClass = ProcessPriorityClass.High; } catch { }
+            _gpuPriority = Native.RaiseGpuPriority(p);
             p.BeginErrorReadLine();
             p.BeginOutputReadLine();
         }
