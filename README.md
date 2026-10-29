@@ -61,4 +61,10 @@ Files: settings in `%APPDATA%\LiteClip`, buffer/thumbnails/logs in `%LOCALAPPDAT
 
 ## Licence
 
-The bundled ffmpeg is LGPL 2.1+, built from FFmpeg sources with only the timestamp patch in `ffmpeg/build.sh`.
+The bundled ffmpeg is LGPL 2.1+, built from FFmpeg sources with the small patches in `ffmpeg/` (absolute capture timestamps, and reading a game-capture hook's shared texture).
+
+In-game capture uses OBS Studio's unmodified `graphics-hook64.dll`, `inject-helper64.exe` and `get-graphics-offsets64.exe`, taken from the latest official OBS release at build time. They are separate programs under the GNU GPL v2 or later; source: https://github.com/obsproject/obs-studio/tree/master/plugins/win-capture. LiteClip talks to them only through their shared-memory protocol.
+
+### CS2 and other protected games
+
+In-game capture (smooth even when a game keeps the GPU at 100%) needs the game to allow it. For CS2 add `-allow_third_party_software` to its launch options, as with Medal and OBS. Without it LiteClip falls back to Windows capture, which can drop frames when the GPU is maxed out.

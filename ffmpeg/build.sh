@@ -21,6 +21,11 @@ if ! grep -q "LiteClip:" "$f"; then
 fi
 grep -q "LiteClip:" "$f" || { echo "gfxcapture patch did not apply"; exit 1; }
 
+# LiteClip patch: gfxcapture can read a game-capture hook's shared texture (shtex=<handle>),
+# so games that max out the GPU or run exclusive fullscreen still record every frame.
+python3 "$HERE/patch_shtex.py" .
+grep -q "LiteClip shtex" libavfilter/vsrc_gfxcapture_winrt.cpp || { echo "shtex patch did not apply"; exit 1; }
+
 # LiteClip patch: some drivers (seen on Intel) refuse an NV12 texture array that is both a
 # render target and a video-encoder input (E_INVALIDARG). Retry as a plain render target.
 f=libavfilter/vf_scale_d3d11.c

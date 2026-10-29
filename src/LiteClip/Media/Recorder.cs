@@ -75,16 +75,17 @@ public sealed class Recorder : IDisposable
 
     async Task StartCoreAsync(Settings s, GameInfo? game)
     {
-        // ---- what to capture
-        string src, sourceLabel;
-        int srcW, srcH;
+        // ---- what to capture: in-game hook first (every frame, even with the GPU maxed), then Windows capture
+        var sources = new List<(string src, string label, int w, int h, bool hooked)>();
         if (s.CaptureMode == "game" && game != null && game.Alive)
         {
+            var hook = await HookFor(game, s.Fps);
+            if (hook != null)
+                sources.Add(($"gfxcapture=hwnd={game.Hwnd.ToInt64()}:shtex={hook.TextureHandle}", "Game (in-game capture)", hook.Width, hook.Height, true));
             Native.GetClientRect(game.Hwnd, out var cr);
-            srcW = cr.Width; srcH = cr.Height;
-            if (srcW < 64 || srcH < 64) { Native.GetWindowRect(game.Hwnd, out var wr); srcW = wr.Width; srcH = wr.Height; }
-            src = $"gfxcapture=hwnd={game.Hwnd.ToInt64()}";
-            sourceLabel = "Game window";
+            int cw = cr.Width, ch = cr.Height;
+            if (cw < 64 || ch < 64) { Native.GetWindowRect(game.Hwnd, out var wr); cw = wr.Width; ch = wr.Height; }
+            sources.Add(($"gfxcapture=hwnd={game.Hwnd.ToInt64()}", "Game window", cw, ch, false));
         }
         else
         {
@@ -92,14 +93,12 @@ public sealed class Recorder : IDisposable
             if (mons.Count == 0) { SetStatus(Status with { State = RecState.Error, Text = "No monitor found" }); return; }
             var mon = game != null ? mons.FirstOrDefault(m => m.Handle == Native.MonitorHandleOf(game.Hwnd)) ?? mons[0]
                                    : mons[Math.Clamp(s.MonitorIndex, 0, mons.Count - 1)];
-            srcW = mon.Bounds.Width; srcH = mon.Bounds.Height;
-            src = $"gfxcapture=hmonitor={mon.Handle.ToInt64()}";
-            sourceLabel = $"Monitor {mons.IndexOf(mon) + 1}";
+            sources.Add(($"gfxcapture=hmonitor={mon.Handle.ToInt64()}", $"Monitor {mons.IndexOf(mon) + 1}", mon.Bounds.Width, mon.Bounds.Height, false));
         }
-        var (w, h) = Encoders.Fit(s.Quality, srcW, srcH);
         int fps = s.Fps;
+        var (w, h) = Encoders.Fit(s.Quality, sources[0].w, sources[0].h);
 
-        SetStatus(new RecStatus(RecState.Starting, "Starting…", game?.Name, null, w, h, fps, 0, null, sourceLabel));
+        SetStatus(new RecStatus(RecState.Starting, "Starting…", game?.Name, null, w, h, fps, 0, null, sources[0].label));
 
         var candidates = await Encoders.CandidatesAsync(s);
         if (candidates.Count == 0)
@@ -112,12 +111,23 @@ public sealed class Recorder : IDisposable
         try
         {
             string lastErr = "";
+            foreach (var source in sources)
             foreach (var enc in candidates)
             {
+                var src = source.src;
+                var sourceLabel = source.label;
+                (w, h) = Encoders.Fit(s.Quality, source.w, source.h);
                 int kbps = Encoders.Kbps(s.Quality, s.Codec, w, h, fps);
                 var session = await LaunchAsync(s, game, enc, src, w, h, fps, kbps);
+                if (session == null && source.hooked)
+                {
+                    Log.Warn("in-game capture didn't start, falling back to Windows capture");
+                    DropHook(game!.Pid, "ffmpeg couldn't read the hook texture");
+                    break; // next source
+                }
                 if (session != null)
                 {
+                    if (source.hooked) WatchHook(session);
                     _s = session;
                     _failures = 0;
                     if (s.Encoder == "auto" && s.LastEncoder != enc) { s.LastEncoder = enc; try { s.Save(); } catch { } }
@@ -269,6 +279,64 @@ public sealed class Recorder : IDisposable
         p.Exited += (_, _) => OnExited(session);
         if (p.HasExited) { OnExited(session); }
         return session;
+    }
+
+    // ---- in-game capture hook, kept across recorder restarts while the same game runs
+
+    GameHook? _hook;
+    readonly Dictionary<int, DateTime> _hookBlocked = new(); // pid -> don't retry before
+
+    async Task<GameHook?> HookFor(GameInfo game, int fps)
+    {
+        if (_hook != null && _hook.Pid != game.Pid) { _hook.Dispose(); _hook = null; }
+        if (_hook != null)
+        {
+            if (!_hook.Changed) return _hook;
+            var err = _hook.Refresh();
+            if (err == null) { Log.Info($"in-game capture: new texture {_hook.Width}x{_hook.Height}"); return _hook; }
+            DropHook(game.Pid, err);
+        }
+        if (_hookBlocked.TryGetValue(game.Pid, out var until) && DateTime.Now < until) return null;
+        var sw = Stopwatch.StartNew();
+        var (hook, why) = await GameHook.TryStartAsync(game, fps);
+        if (hook == null)
+        {
+            Log.Info($"in-game capture unavailable for {game.Exe}: {why}. Using Windows capture.");
+            _hookBlocked[game.Pid] = DateTime.Now.AddMinutes(5);
+            return null;
+        }
+        Log.Info($"in-game capture: hooked {game.Exe} {hook.Width}x{hook.Height} in {sw.ElapsedMilliseconds} ms");
+        return _hook = hook;
+    }
+
+    void DropHook(int pid, string why)
+    {
+        Log.Info($"in-game capture stopped: {why}");
+        _hook?.Dispose();
+        _hook = null;
+        _hookBlocked[pid] = DateTime.Now.AddMinutes(5);
+    }
+
+    /// <summary>When the game re-creates its frames (resolution change, alt-enter), restart onto the new texture.</summary>
+    void WatchHook(Session session)
+    {
+        var hook = _hook;
+        if (hook == null) return;
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(3000);
+            while (true)
+            {
+                await Task.Delay(1000);
+                if (session.Stopping || !session.Alive || _s != session) return;
+                if (!hook.Changed) continue;
+                var err = hook.Refresh();
+                if (err != null) DropHook(hook.Pid, err);
+                else Log.Info($"in-game capture: game changed to {hook.Width}x{hook.Height}, restarting recorder");
+                await StartAsync(session.Settings, session.Game);
+                return;
+            }
+        });
     }
 
     void OnExited(Session session)
@@ -464,5 +532,6 @@ public sealed class Recorder : IDisposable
     {
         _restartCts?.Cancel();
         StopCoreAsync().Wait(4000);
+        _hook?.Dispose();
     }
 }

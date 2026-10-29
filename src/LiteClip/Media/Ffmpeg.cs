@@ -47,6 +47,7 @@ public static class Ffmpeg
         var dir = Path.Combine(Paths.Bin, hash);
         _ffmpeg = Path.Combine(dir, "ffmpeg.exe");
         _ffprobe = Path.Combine(dir, "ffprobe.exe");
+        UnpackHook(asm, Path.Combine(dir, "hook"));
         if (File.Exists(_ffmpeg) && new FileInfo(_ffmpeg).Length == ff.Length &&
             File.Exists(_ffprobe) && new FileInfo(_ffprobe).Length == fp.Length) return;
 
@@ -58,6 +59,30 @@ public static class Ffmpeg
         // tidy away older copies
         foreach (var old in Directory.GetDirectories(Paths.Bin).Where(d => !d.EndsWith(hash)))
             try { Directory.Delete(old, true); } catch { }
+    }
+
+    /// <summary>Folder with OBS's game-capture hook (graphics-hook64.dll etc.), or null if this build has none.</summary>
+    public static string? HookDir { get; private set; }
+
+    static readonly string[] HookFiles = { "graphics-hook64.dll", "inject-helper64.exe", "get-graphics-offsets64.exe" };
+
+    static void UnpackHook(Assembly asm, string dir)
+    {
+        try
+        {
+            if (HookFiles.Any(n => asm.GetManifestResourceInfo("hook/" + n) == null)) return;
+            Directory.CreateDirectory(dir);
+            foreach (var n in HookFiles)
+            {
+                using var r = asm.GetManifestResourceStream("hook/" + n)!;
+                var path = Path.Combine(dir, n);
+                // a game may still have yesterday's hook loaded: leave a same-size file alone
+                if (File.Exists(path) && new FileInfo(path).Length == r.Length) continue;
+                Unpack(r, path);
+            }
+            HookDir = dir;
+        }
+        catch (Exception ex) { Log.Error("couldn't unpack the game capture hook", ex); }
     }
 
     static void Unpack(Stream s, string path)

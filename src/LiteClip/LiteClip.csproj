@@ -45,6 +45,7 @@
     <EmbeddedResource Include="wwwroot\**\*" LogicalName="ui/%(RecursiveDir)%(Filename)%(Extension)" />
     <EmbeddedResource Include="Embedded\ffmpeg.exe" LogicalName="bin/ffmpeg.exe" Condition="Exists('Embedded\ffmpeg.exe')" />
     <EmbeddedResource Include="Embedded\ffprobe.exe" LogicalName="bin/ffprobe.exe" Condition="Exists('Embedded\ffprobe.exe')" />
+    <EmbeddedResource Include="Embedded\hook\*.dll;Embedded\hook\*.exe" LogicalName="hook/%(Filename)%(Extension)" />
     <EmbeddedResource Include="Assets\liteclip.ico" LogicalName="liteclip.ico" />
   </ItemGroup>
 

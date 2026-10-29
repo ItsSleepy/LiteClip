@@ -52,6 +52,7 @@ jobs:
         run: |
           $ff = 'build/ffmpeg-out/bin/ffmpeg.exe'
           & $ff -hide_banner -filters | Select-String 'gfxcapture|scale_d3d11|ddagrab'
+          & $ff -hide_banner -h filter=gfxcapture | Select-String 'shtex'
           & $ff -hide_banner -encoders | Select-String 'nvenc|amf|_mf'
           New-Item -ItemType Directory -Force smoke | Out-Null
           & $ff -hide_banner -loglevel error -f lavfi -i testsrc2=s=1280x720:r=60 -f lavfi -i anullsrc=r=48000:cl=stereo -t 6 `
@@ -79,6 +80,28 @@ jobs:
         with:
           name: ffmpeg
           path: src/LiteClip/Embedded
+
+      # OBS Studio's game-capture hook (GPL-2.0-or-later), shipped as separate unmodified programs.
+      # Source: https://github.com/obsproject/obs-studio/tree/master/plugins/win-capture
+      - name: Fetch OBS game capture hook
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $rel = gh api repos/obsproject/obs-studio/releases/latest | ConvertFrom-Json
+          $asset = $rel.assets | Where-Object { $_.name -match 'Windows.*\.zip$' -and $_.name -notmatch 'PDB|arm64|ARM64' } | Select-Object -First 1
+          if (-not $asset) { throw "no Windows zip in OBS $($rel.tag_name): $($rel.assets.name -join ', ')" }
+          Write-Host "OBS $($rel.tag_name): $($asset.name)"
+          Invoke-WebRequest $asset.browser_download_url -OutFile obs.zip
+          Expand-Archive obs.zip obs
+          $d = 'src/LiteClip/Embedded/hook'
+          New-Item -ItemType Directory -Force $d | Out-Null
+          foreach ($n in 'graphics-hook64.dll', 'inject-helper64.exe', 'get-graphics-offsets64.exe') {
+            $f = Get-ChildItem obs -Recurse -Filter $n | Select-Object -First 1
+            if (-not $f) { throw "$n not in the OBS zip" }
+            Copy-Item $f.FullName $d
+          }
+          Get-ChildItem $d | Format-Table Name, Length
 
       - uses: actions/setup-dotnet@v4
         with:
