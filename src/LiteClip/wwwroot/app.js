@@ -390,9 +390,10 @@ function fillSettings() {
   $$('.k-len').forEach(e => e.textContent = lenLabel(s.clipSeconds));
   $('#quality-hint').textContent = { low: 'Up to 720p, small files', medium: 'Up to 1080p', high: 'Up to 1440p, sharp', max: 'Full resolution up to 4K, big files' }[s.quality];
   $('#row-monitor').classList.toggle('dim', s.onlyWhileGaming && s.captureMode === 'game');
-  $$('[data-set=gameDevice],[data-set=gameVolume]').forEach(e => e.closest('.row').classList.toggle('dim', !s.recordGameAudio));
+  $$('[data-set=gameDevice],[data-set=gameVolume],#extra-outputs').forEach(e => e.closest('.row').classList.toggle('dim', !s.recordGameAudio));
   $$('[data-set=micDevice],[data-set=micVolume]').forEach(e => e.closest('.row').classList.toggle('dim', !s.recordMic));
   $$('.tags').forEach(renderTags);
+  renderExtraOutputs();
 }
 
 function fillSelects() {
@@ -400,8 +401,27 @@ function fillSelects() {
   const def = list => (list.find(d => d.isDefault) || {}).name;
   $('#mics').innerHTML = opt('', `Windows default${def(S.mics) ? ` (${def(S.mics)})` : ''}`) + S.mics.map(d => opt(d.id, d.name)).join('');
   $('#outputs').innerHTML = opt('', `Windows default${def(S.outputs) ? ` (${def(S.outputs)})` : ''}`) + S.outputs.map(d => opt(d.id, d.name)).join('');
+  renderExtraOutputs();
   $('#monitors').innerHTML = S.monitors.map(m => opt(m.index, `${m.name} · ${m.width}×${m.height}`)).join('');
   fillEncoders();
+}
+
+// Other outputs to record into the game track as well (headsets with separate Game and Chat devices)
+function renderExtraOutputs() {
+  const box = $('#extra-outputs');
+  if (!box || !S.settings) return;
+  const primary = S.settings.gameDevice || (S.outputs.find(d => d.isDefault) || {}).id;
+  const others = S.outputs.filter(d => d.id !== primary);
+  $('#row-extra').hidden = others.length === 0;
+  const extra = new Set(S.settings.extraGameDevices || []);
+  box.innerHTML = others.map(d => `<label><input type="checkbox" value="${esc(d.id)}" ${extra.has(d.id) ? 'checked' : ''}>
+    <span>${esc(d.name)}</span>${/chat/i.test(d.name) ? '<span class="tag">Chat audio</span>' : ''}</label>`).join('');
+  $$('input', box).forEach(cb => cb.onchange = () => {
+    const now = new Set(S.settings.extraGameDevices || []);
+    cb.checked ? now.add(cb.value) : now.delete(cb.value);
+    S.settings.extraGameDevices = [...now];
+    queueSave();
+  });
 }
 
 function fillEncoders() {

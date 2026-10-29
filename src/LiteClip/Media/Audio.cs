@@ -55,11 +55,12 @@ public sealed class AudioSource : IDisposable
         try
         {
             using var en = new MMDeviceEnumerator();
-            MMDevice dev = Kind == "game"
+            bool output = Kind.StartsWith("game");
+            MMDevice dev = output
                 ? (string.IsNullOrEmpty(_deviceId) ? en.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia) : en.GetDevice(_deviceId))
                 : (string.IsNullOrEmpty(_deviceId) ? en.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Multimedia) : en.GetDevice(_deviceId));
             DeviceName = dev.FriendlyName;
-            _cap = Kind == "game" ? new WasapiLoopbackCapture(dev) : new WasapiCapture(dev, true, 20);
+            _cap = output ? new WasapiLoopbackCapture(dev) : new WasapiCapture(dev, true, 20);
             var f = _cap.WaveFormat;
             _inRate = f.SampleRate; _inCh = f.Channels; _bits = f.BitsPerSample;
             _isFloat = f.Encoding == WaveFormatEncoding.IeeeFloat ||
@@ -231,17 +232,18 @@ public sealed class PipeFeed : IDisposable
 
     public readonly string PipeName;
     readonly NamedPipeServerStream _pipe;
-    readonly AudioSource? _src;
+    readonly AudioSource[] _srcs;
     readonly long _t0;
     readonly CancellationTokenSource _cts = new();
     Thread? _thread;
     public long FramesWritten;
     public volatile bool Connected;
 
-    public PipeFeed(string name, AudioSource? src, long t0Qpc100ns)
+    /// <param name="srcs">Mixed together, each kept in sync on its own (e.g. a headset's Game and Chat outputs).</param>
+    public PipeFeed(string name, IEnumerable<AudioSource?> srcs, long t0Qpc100ns)
     {
         PipeName = name;
-        _src = src;
+        _srcs = srcs.Where(x => x != null).Cast<AudioSource>().ToArray();
         _t0 = t0Qpc100ns;
         _pipe = new NamedPipeServerStream(name, PipeDirection.Out, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 1 << 20);
     }
@@ -261,6 +263,7 @@ public sealed class PipeFeed : IDisposable
             _pipe.WaitForConnectionAsync(_cts.Token).GetAwaiter().GetResult();
             Connected = true;
             var buf = new float[Rate * 2]; // up to 1 s per write
+            tmp = new float[Rate * 2];
             timeBeginPeriod(1);
             while (!_cts.IsCancellationRequested)
             {
@@ -268,36 +271,15 @@ public sealed class PipeFeed : IDisposable
                 long need = due - FramesWritten;
                 if (need <= 0) { Thread.Sleep(5); continue; }
                 int n = (int)Math.Min(need, Rate);
-                int lead = 0, got = 0;
-
-                if (_src != null)
+                Array.Clear(buf, 0, n * 2);
+                for (int k = 0; k < _srcs.Length; k++)
                 {
-                    var (avail, newest) = _src.State();
-                    if (avail > 0)
-                    {
-                        // When was the oldest queued frame captured, and which moment does the next
-                        // frame we write stand for? They should match: that's what keeps sound in sync.
-                        long oldest = newest - (long)avail * 10_000_000 / Rate;
-                        long slot = _t0 + FramesWritten * 10_000_000 / Rate;
-                        double errMs = (oldest - slot) / 10_000.0; // + content is newer than its slot, - older
-                        if (errMs < -SnapMs)
-                        {   // sound is late: skip the stale part
-                            int drop = Math.Min(avail, (int)(-errMs * Rate / 1000));
-                            _src.Discard(drop);
-                            errMs = 0;
-                        }
-                        else if (errMs > SnapMs)
-                        {   // sound is early (it went quiet and came back): pad until its moment arrives
-                            lead = Math.Min(n, (int)(errMs * Rate / 1000));
-                            errMs = 0;
-                        }
-                        // small errors: nudge the resampler a few hundred ppm so it settles without a skip
-                        _src.SetDriftAdjust(-errMs * 0.0002);
-                        got = _src.Read(buf, lead * 2, n - lead);
-                    }
+                    if (_srcs.Length == 1) { Fill(_srcs[0], buf, n); break; }
+                    // more than one source: fill a scratch buffer and add it in
+                    Array.Clear(tmp, 0, n * 2);
+                    Fill(_srcs[k], tmp, n);
+                    for (int x = 0; x < n * 2; x++) buf[x] += tmp[x];
                 }
-                if (lead > 0) Array.Clear(buf, 0, lead * 2);
-                if (lead + got < n) Array.Clear(buf, (lead + got) * 2, (n - lead - got) * 2);
 
                 _pipe.Write(MemoryMarshal.AsBytes(buf.AsSpan(0, n * 2)));
                 FramesWritten += n;
@@ -309,6 +291,36 @@ public sealed class PipeFeed : IDisposable
         catch (ObjectDisposedException) { }
         catch (Exception ex) { Log.Error($"audio pipe {PipeName}", ex); }
         finally { timeEndPeriod(1); }
+    }
+
+    float[] tmp = Array.Empty<float>();
+
+    /// <summary>
+    /// Writes the next <paramref name="n"/> frames of one source into <paramref name="dst"/> (already zeroed).
+    /// Compares when the queued sound was captured with the moment its slot stands for, and skips,
+    /// pads or gently resamples to close the gap.
+    /// </summary>
+    void Fill(AudioSource src, float[] dst, int n)
+    {
+        var (avail, newest) = src.State();
+        if (avail <= 0) return; // nothing playing: silence
+        long oldest = newest - (long)avail * 10_000_000 / Rate;
+        long slot = _t0 + FramesWritten * 10_000_000 / Rate;
+        double errMs = (oldest - slot) / 10_000.0; // + content is newer than its slot, - older
+        int lead = 0;
+        if (errMs < -SnapMs)
+        {   // sound is late: skip the stale part
+            src.Discard(Math.Min(avail, (int)(-errMs * Rate / 1000)));
+            errMs = 0;
+        }
+        else if (errMs > SnapMs)
+        {   // sound is early (it went quiet and came back): pad until its moment arrives
+            lead = Math.Min(n, (int)(errMs * Rate / 1000));
+            errMs = 0;
+        }
+        // small errors: nudge the resampler a few hundred ppm so it settles without a skip
+        src.SetDriftAdjust(-errMs * 0.0002);
+        src.Read(dst, lead * 2, n - lead);
     }
 
     public void Dispose()
@@ -328,6 +340,9 @@ public sealed class AudioEngine : IDisposable, IMMNotificationClient
     readonly object _gate = new();
     MMDeviceEnumerator? _en;
     public AudioSource? Game { get; private set; }
+    /// <summary>Extra outputs recorded into the game track too (headsets with separate Game and Chat devices).</summary>
+    public List<AudioSource> ExtraGame { get; private set; } = new();
+    public IEnumerable<AudioSource?> GameSources => new[] { Game }.Concat(ExtraGame);
     public AudioSource? Mic { get; private set; }
     int _users;
     string _key = "";
@@ -352,16 +367,28 @@ public sealed class AudioEngine : IDisposable, IMMNotificationClient
         lock (_gate)
         {
             if (_users == 0) return;
-            var key = $"{s.RecordGameAudio}|{s.GameDevice}|{s.RecordMic}|{s.MicDevice}";
+            var key = $"{s.RecordGameAudio}|{s.GameDevice}|{string.Join(',', s.ExtraGameDevices)}|{s.RecordMic}|{s.MicDevice}";
             if (key != _key)
             {
                 _key = key;
                 Game?.Dispose(); Mic?.Dispose();
+                ExtraGame.ForEach(x => x.Dispose());
+                ExtraGame = new();
                 Game = s.RecordGameAudio ? new AudioSource("game", s.GameDevice) : null;
                 Mic = s.RecordMic ? new AudioSource("mic", s.MicDevice) : null;
+                if (s.RecordGameAudio)
+                {
+                    // never record the same output twice (it would double the volume)
+                    var primary = s.GameDevice;
+                    if (primary == "") try { using var en = new MMDeviceEnumerator(); primary = en.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia).ID; } catch { }
+                    foreach (var id in s.ExtraGameDevices.Where(x => x != primary).Distinct())
+                        ExtraGame.Add(new AudioSource("game+", id));
+                }
                 Game?.Start(); Mic?.Start();
+                ExtraGame.ForEach(x => x.Start());
             }
             if (Game != null) Game.Gain = s.GameVolume / 100f;
+            foreach (var x in ExtraGame) x.Gain = s.GameVolume / 100f;
             if (Mic != null) Mic.Gain = s.MicVolume / 100f;
         }
     }
@@ -374,13 +401,23 @@ public sealed class AudioEngine : IDisposable, IMMNotificationClient
             if (_users == 0)
             {
                 Game?.Dispose(); Mic?.Dispose();
+                ExtraGame.ForEach(x => x.Dispose());
+                ExtraGame = new();
                 Game = Mic = null;
                 _key = "";
             }
         }
     }
 
-    public (float game, float mic) Levels() => (Game?.TakePeak() ?? 0, Mic?.TakePeak() ?? 0);
+    public (float game, float mic) Levels()
+    {
+        lock (_gate)
+        {
+            float g = Game?.TakePeak() ?? 0;
+            foreach (var x in ExtraGame) g = Math.Max(g, x.TakePeak());
+            return (g, Mic?.TakePeak() ?? 0);
+        }
+    }
 
     public static List<AudioDevice> Devices(bool capture)
     {
@@ -418,5 +455,6 @@ public sealed class AudioEngine : IDisposable, IMMNotificationClient
     {
         try { _en?.UnregisterEndpointNotificationCallback(this); _en?.Dispose(); } catch { }
         Game?.Dispose(); Mic?.Dispose();
+        ExtraGame.ForEach(x => x.Dispose());
     }
 }

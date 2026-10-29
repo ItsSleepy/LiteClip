@@ -91,6 +91,7 @@
             <p class="note">Game sound and your mic are saved on separate tracks too, so you can fix the mix later.</p>
             <div class="row"><div><b>Record game sound</b></div><label class="switch"><input type="checkbox" data-set="recordGameAudio"><i></i></label></div>
             <div class="row sub"><div><b>From</b></div><select data-set="gameDevice" id="outputs"></select></div>
+            <div class="row sub col" id="row-extra"><div><b>Also record</b><small id="extra-hint">Headsets like the JBL Quantum or SteelSeries Arctis split sound into "Game" and "Chat". Tick the other one to get your friends in the clip too.</small></div><div class="checks" id="extra-outputs"></div></div>
             <div class="row sub"><div><b>Volume</b><div class="meter"><i id="m-game"></i></div></div><div class="slider"><input type="range" min="0" max="200" step="5" data-set="gameVolume" data-type="int"><output></output></div></div>
             <div class="row"><div><b>Record microphone</b></div><label class="switch"><input type="checkbox" data-set="recordMic"><i></i></label></div>
             <div class="row sub"><div><b>Microphone</b></div><select data-set="micDevice" id="mics"></select></div>

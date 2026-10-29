@@ -29,6 +29,7 @@ public sealed class Settings
     // ---- audio
     public bool RecordGameAudio { get; set; } = true;
     public string GameDevice { get; set; } = "";        // "" = Windows default output
+    public List<string> ExtraGameDevices { get; set; } = new(); // more outputs mixed into the game track (headset Game + Chat)
     public int GameVolume { get; set; } = 100;          // 0..200 %
     public bool RecordMic { get; set; } = true;
     public string MicDevice { get; set; } = "";         // "" = Windows default mic
@@ -88,6 +89,7 @@ public sealed class Settings
         if (Hotkey.Parse(ClipKey) == null) ClipKey = "F8";
         if (Hotkey.Parse(LongClipKey) == null) LongClipKey = "Shift+F8";
         AlwaysGames = AlwaysGames.Select(x => x.Trim().ToLowerInvariant()).Where(x => x.Length > 0).Distinct().ToList();
+        ExtraGameDevices = (ExtraGameDevices ?? new()).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToList();
         NeverGames = NeverGames.Select(x => x.Trim().ToLowerInvariant()).Where(x => x.Length > 0).Distinct().ToList();
         return this;
     }
@@ -98,6 +100,7 @@ public sealed class Settings
         CaptureMode != o.CaptureMode || MonitorIndex != o.MonitorIndex || OnlyWhileGaming != o.OnlyWhileGaming ||
         CaptureCursor != o.CaptureCursor || BufferSeconds != o.BufferSeconds ||
         RecordGameAudio != o.RecordGameAudio || GameDevice != o.GameDevice ||
+        !ExtraGameDevices.SequenceEqual(o.ExtraGameDevices) ||
         RecordMic != o.RecordMic || MicDevice != o.MicDevice ||
         !AlwaysGames.SequenceEqual(o.AlwaysGames) || !NeverGames.SequenceEqual(o.NeverGames);
 }

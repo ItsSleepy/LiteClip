@@ -156,8 +156,8 @@ public sealed class Recorder : IDisposable
         CleanOldBuffers(dir);
 
         long t0 = Native.Qpc100ns();
-        var game0 = new PipeFeed($"liteclip-{id}-game", _audio.Game, t0);
-        var mic0 = new PipeFeed($"liteclip-{id}-mic", _audio.Mic, t0);
+        var game0 = new PipeFeed($"liteclip-{id}-game", _audio.GameSources, t0);
+        var mic0 = new PipeFeed($"liteclip-{id}-mic", new[] { _audio.Mic }, t0);
         var feeds = new List<PipeFeed> { game0, mic0 };
         feeds.ForEach(f => f.Start());
 

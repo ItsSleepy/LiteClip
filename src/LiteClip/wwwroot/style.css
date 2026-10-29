@@ -210,3 +210,9 @@ video { position: absolute; inset: 0; margin: auto; max-width: 100%; max-height:
 .m-box h3 { margin: 0 0 6px; }
 .m-box p { color: var(--muted); margin: 0 0 18px; }
 .m-box .btns { justify-content: flex-end; }
+
+.checks { display: flex; flex-direction: column; gap: 6px; }
+.checks label { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--line-2); border-radius: 9px; background: var(--panel-2); cursor: pointer; }
+.checks label:hover { border-color: #444859; }
+.checks input { accent-color: var(--accent); width: 16px; height: 16px; }
+.checks .tag { margin-left: auto; font-size: 11px; color: var(--accent-2); font-weight: 600; }
