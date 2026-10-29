@@ -221,7 +221,18 @@ public sealed class Recorder : IDisposable
             Native.AttachToJob(p);
             // capture must keep up even when a game pins the CPU and GPU at 100%
             try { p.PriorityClass = ProcessPriorityClass.High; } catch { }
-            _gpuPriority = Native.RaiseGpuPriority(p);
+            // the GPU priority call only works once ffmpeg has opened the graphics card, so try a few times
+            _ = Task.Run(async () =>
+            {
+                foreach (var wait in new[] { 1500, 3000, 6000, 12000 })
+                {
+                    await Task.Delay(wait);
+                    if (p.HasExited) return;
+                    _gpuPriority = Native.RaiseGpuPriority(p);
+                    Log.Info($"gpu priority after {wait} ms: {_gpuPriority}");
+                    if (!_gpuPriority.StartsWith("normal")) return;
+                }
+            });
             p.BeginErrorReadLine();
             p.BeginOutputReadLine();
         }
