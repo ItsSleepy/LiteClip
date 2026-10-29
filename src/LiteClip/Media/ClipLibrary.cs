@@ -39,10 +39,30 @@ public sealed class ClipLibrary
         catch (Exception ex) { Log.Warn("clip index unreadable: " + ex.Message); }
     }
 
+    FileSystemWatcher? _watch;
+    System.Threading.Timer? _debounce;
+
     public void SetFolder(string folder)
     {
         Folder = folder;
         try { Directory.CreateDirectory(folder); } catch (Exception ex) { Log.Warn($"clip folder {folder}: {ex.Message}"); }
+        // notice clips added, renamed or deleted outside LiteClip (Explorer, another app)
+        _watch?.Dispose();
+        try
+        {
+            _watch = new FileSystemWatcher(folder, "*.mp4") { IncludeSubdirectories = false, NotifyFilter = NotifyFilters.FileName | NotifyFilters.Size };
+            FileSystemEventHandler h = (_, _) => Poke();
+            _watch.Created += h; _watch.Deleted += h; _watch.Changed += h;
+            _watch.Renamed += (_, _) => Poke();
+            _watch.EnableRaisingEvents = true;
+        }
+        catch (Exception ex) { Log.Warn("folder watch: " + ex.Message); }
+    }
+
+    void Poke()
+    {
+        _debounce?.Dispose();
+        _debounce = new System.Threading.Timer(_ => Changed?.Invoke(), null, 700, Timeout.Infinite);
     }
 
     void SaveIndex()
