@@ -44,7 +44,7 @@ public sealed class GameDetector : IDisposable
     // fullscreen but definitely not a game
     static readonly HashSet<string> NotGames = new(StringComparer.OrdinalIgnoreCase)
     {
-        "explorer", "chrome", "msedge", "firefox", "opera", "opera_gx", "brave", "vivaldi", "arc",
+        "explorer", "dwm", "applicationframehost", "chrome", "msedge", "firefox", "opera", "opera_gx", "brave", "vivaldi", "arc",
         "vlc", "mpv", "mpc-hc64", "potplayermini64", "wmplayer", "video.ui", "microsoft.media.player", "netflix",
         "discord", "spotify", "steam", "steamwebhelper", "epicgameslauncher", "battle.net", "riotclientux", "eadesktop",
         "medal", "obs64", "liteclip", "applicationframehost", "searchhost", "startmenuexperiencehost", "shellexperiencehost",
