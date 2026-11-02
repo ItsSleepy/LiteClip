@@ -131,7 +131,12 @@ public sealed class Recorder : IDisposable
                     _s = session;
                     _failures = 0;
                     if (s.Encoder == "auto" && s.LastEncoder != enc) { s.LastEncoder = enc; try { s.Save(); } catch { } }
-                    SetStatus(new RecStatus(RecState.Recording, game != null ? $"Recording {game.Name}" : "Recording screen",
+                    var text = game != null ? $"Recording {game.Name}" : "Recording screen";
+                    if (game != null && s.CaptureMode == "game" && !source.hooked)
+                        text += game.Exe.Equals("cs2", StringComparison.OrdinalIgnoreCase)
+                            ? " · for smooth clips add -allow_third_party_software to CS2's launch options"
+                            : " · the game blocked smooth capture";
+                    SetStatus(new RecStatus(RecState.Recording, text,
                         game?.Name, Encoders.Label(enc), w, h, fps, kbps, DateTime.Now, sourceLabel));
                     Log.Info($"recording {sourceLabel} {w}x{h}@{fps} {kbps}k via {enc}/{s.Codec}, gpu priority {_gpuPriority}");
                     return;
@@ -173,9 +178,12 @@ public sealed class Recorder : IDisposable
         feeds.ForEach(f => f.Start());
 
         int wrap = s.BufferSeconds + 10; // one-second segments
+        // Capture runs as its own input (lavfi device) rather than inside -filter_complex: as an input it gets
+        // a reader thread that pulls frames as fast as they come. Inside the graph it was only asked for a frame
+        // when audio happened to arrive, which starved it to 6-30 new frames/s whatever the game did.
+        var capture = $"{src}:max_framerate={fps}:capture_cursor={(s.CaptureCursor ? 1 : 0)}:width={w}:height={h}:resize_mode=scale_aspect";
         var filter =
-            $"{src}:max_framerate={fps}:capture_cursor={(s.CaptureCursor ? 1 : 0)}:width={w}:height={h}:resize_mode=scale_aspect," +
-            $"setpts=PTS-{t0}" + Encoders.CaptureTail(enc) + "[v];" +
+            $"[2:v]setpts=PTS-{t0}" + Encoders.CaptureTail(enc) + "[v];" +
             "[0:a]asettb=1/48000,asetpts=N,asplit=2[g1][g2];" +
             "[1:a]asettb=1/48000,asetpts=N,asplit=2[m1][m2];" +
             "[g1][m1]amix=inputs=2:normalize=0:dropout_transition=0[mix]";
@@ -183,6 +191,8 @@ public sealed class Recorder : IDisposable
         var args = new List<string> { "-hide_banner", "-loglevel", "warning", "-nostats", "-progress", "pipe:1", "-stats_period", "15",
             "-thread_queue_size", "1024", "-f", "f32le", "-ar", "48000", "-ac", "2", "-i", game0.FfmpegPath,
             "-thread_queue_size", "1024", "-f", "f32le", "-ar", "48000", "-ac", "2", "-i", mic0.FfmpegPath,
+            "-thread_queue_size", "4", "-f", "lavfi", "-i", capture,
+            "-copyts", // keep the capture clock (QPC) so setpts=PTS-t0 lines video up with the audio pipes
             "-filter_complex", filter,
             "-map", "[v]", "-map", "[mix]", "-map", "[g2]", "-map", "[m2]",
             "-fps_mode:v", "cfr", "-r:v", fps.ToString() }; // cfr here (not the fps filter) so ffmpeg reports how many frames it had to repeat

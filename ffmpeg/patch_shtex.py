@@ -131,6 +131,15 @@ patch("libavfilter/vsrc_gfxcapture_winrt.cpp", [
      "    ret = run_on_wgc_thread(avctx, [&]() {\n"),
 ])
 
+# a few more frames in flight: the capture now runs on its own input thread, ahead of the encoder
+p = os.path.join(root, "libavfilter/vsrc_gfxcapture_winrt.cpp")
+s = open(p, encoding="utf-8").read()
+if "initial_pool_size = 16 +" not in s:
+    old = "ctx->frames_ctx->initial_pool_size = 8 + avctx->extra_hw_frames;"
+    assert old in s, "pool size anchor not found"
+    s = s.replace(old, "ctx->frames_ctx->initial_pool_size = 16 + avctx->extra_hw_frames; /* LiteClip */", 1)
+    open(p, "w", encoding="utf-8").write(s)
+
 # the shared texture and timer are released with the rest of the WGC state
 patch_cleanup = ("    wgctx->frame_pool.Reset();\n",
                  "    wgctx->frame_pool.Reset();\n"
