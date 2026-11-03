@@ -24,6 +24,14 @@ grep -q "LiteClip:" "$f" || { echo "gfxcapture patch did not apply"; exit 1; }
 # LiteClip patch: gfxcapture can read a game-capture hook's shared texture (shtex=<handle>),
 # so games that max out the GPU or run exclusive fullscreen still record every frame.
 python3 "$HERE/patch_shtex.py" .
+
+# LiteClip patch: ffmpeg 7+'s scheduler pauses an input whose output stream gets 100 ms ahead of
+# the slowest one. Our audio arrives ~100 ms behind real time (pipe latency + AAC look-ahead), so the
+# live capture input kept getting paused, and a paused live source just loses frames: 120 fps
+# recordings had ~24 real frames a second. Allow 3 s instead; the muxer interleaves the rest.
+f=fftools/ffmpeg_sched.c
+sed -i 's|^#define SCHEDULE_TOLERANCE (100 \* 1000)|#define SCHEDULE_TOLERANCE (3 * 1000 * 1000) /* LiteClip */|' "$f"
+grep -q "LiteClip" "$f" || { echo "scheduler patch did not apply"; exit 1; }
 grep -q "LiteClip shtex" libavfilter/vsrc_gfxcapture_winrt.cpp || { echo "shtex patch did not apply"; exit 1; }
 
 # LiteClip patch: some drivers (seen on Intel) refuse an NV12 texture array that is both a

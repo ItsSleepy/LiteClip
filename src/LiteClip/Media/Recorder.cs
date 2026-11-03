@@ -182,8 +182,10 @@ public sealed class Recorder : IDisposable
         // a reader thread that pulls frames as fast as they come. Inside the graph it was only asked for a frame
         // when audio happened to arrive, which starved it to 6-30 new frames/s whatever the game did.
         var capture = $"{src}:max_framerate={fps}:capture_cursor={(s.CaptureCursor ? 1 : 0)}:width={w}:height={h}:resize_mode=scale_aspect";
+        // video gets its own filter graph (-filter:v): sharing one with the audio made ffmpeg wait for
+        // audio before passing each video frame on, which paused the live capture and lost frames
+        var videoFilter = $"setpts=PTS-{t0}" + Encoders.CaptureTail(enc);
         var filter =
-            $"[2:v]setpts=PTS-{t0}" + Encoders.CaptureTail(enc) + "[v];" +
             "[0:a]asettb=1/48000,asetpts=N,asplit=2[g1][g2];" +
             "[1:a]asettb=1/48000,asetpts=N,asplit=2[m1][m2];" +
             "[g1][m1]amix=inputs=2:normalize=0:dropout_transition=0[mix]";
@@ -194,7 +196,7 @@ public sealed class Recorder : IDisposable
             "-thread_queue_size", "4", "-f", "lavfi", "-i", capture,
             "-copyts", // keep the capture clock (QPC) so setpts=PTS-t0 lines video up with the audio pipes
             "-filter_complex", filter,
-            "-map", "[v]", "-map", "[mix]", "-map", "[g2]", "-map", "[m2]",
+            "-map", "2:v", "-filter:v", videoFilter, "-map", "[mix]", "-map", "[g2]", "-map", "[m2]",
             "-fps_mode:v", "cfr", "-r:v", fps.ToString() }; // cfr here (not the fps filter) so ffmpeg reports how many frames it had to repeat
         args.AddRange(Encoders.VideoArgs(enc, s.Codec, kbps, fps));
         args.AddRange(new[] { "-c:a", "aac", "-b:a", "160k",
